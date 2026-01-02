@@ -22,9 +22,22 @@ HOSTAPD_CONF = "/etc/hostapd/hostapd.conf"
 DNSMASQ_CONF = "/etc/dnsmasq.conf"
 WPA_SUPPLICANT_CONF = "/etc/wpa_supplicant/wpa_supplicant.conf"
 
-# BLEeding
+# BLEeding - Tenta encontrar o caminho correto
 BLEEDING_PATH = "/root/BLEeding"
 ATTACK_TIMEOUT = 10
+# Caminhos alternativos possíveis
+BLEEDING_PATHS = [
+    "/root/BLEeding",
+    "/opt/BLEeding",
+    "/home/pi/BLEeding",
+    "./BLEeding"
+]
+
+# Theme and Display Settings
+THEME_COLOR = "#00d4ff"  # Cor principal do tema
+DARK_BG = "#1a1a2e"      # Fundo escuro
+CARD_BG = "#16213e"      # Fundo dos cards
+TEXT_COLOR = "#eaeaea"   # Cor do texto
 
 # ================= ESTADO GLOBAL =================
 # Rede
@@ -46,6 +59,7 @@ total_attacks = 0
 total_targets_found = 0
 mood = "bored"  # bored, happy, excited, sad, angry
 display_update_count = 0  # Contador para otimização de atualização V4
+last_full_update = None  # Timestamp da última atualização FULL
 
 # ================= E-PAPER SETUP (CORRIGIDO) =================
 print("Inicializando E-Paper...")
@@ -175,13 +189,32 @@ def restart_services_client(ssid, password):
 
 # ================= FUNÇÕES BLEEDING =================
 
+def find_bleeding_path():
+    """Encontra o caminho correto do BLEeding"""
+    global BLEEDING_PATH
+    for path in BLEEDING_PATHS:
+        if os.path.exists(path) and os.path.exists(os.path.join(path, "bleeding.py")):
+            BLEEDING_PATH = path
+            return path
+    return None
+
 def run_bleeding_scan():
     global targets, targets_info, scan_status, total_scans, total_targets_found, mood
     scan_status = "Scanning..."
     mood = "excited"
     update_display()
     
-    os.chdir(BLEEDING_PATH)
+    # Tenta encontrar o caminho do BLEeding
+    bleeding_path = find_bleeding_path()
+    if not bleeding_path:
+        print(f"ERRO: BLEeding não encontrado em nenhum dos caminhos: {BLEEDING_PATHS}")
+        scan_status = "Error"
+        mood = "sad"
+        update_display()
+        return
+    
+    old_cwd = os.getcwd()
+    os.chdir(bleeding_path)
     try:
         result = subprocess.run(['python3', 'bleeding.py', 'scan', '--ble'], 
                               capture_output=True, text=True, timeout=20)
@@ -252,6 +285,12 @@ def run_bleeding_scan():
         print(f"Erro Scan: {e}")
         scan_status = "Error"
         mood = "sad"
+    finally:
+        # Sempre retorna ao diretório original
+        try:
+            os.chdir(old_cwd)
+        except:
+            pass
     
     update_display()
 
@@ -262,12 +301,28 @@ def run_bleeding_attack_thread(mac):
     total_attacks += 1
     update_display()
     
-    os.chdir(BLEEDING_PATH)
+    # Tenta encontrar o caminho do BLEeding
+    bleeding_path = find_bleeding_path()
+    if not bleeding_path:
+        print(f"ERRO: BLEeding não encontrado em nenhum dos caminhos: {BLEEDING_PATHS}")
+        attacking = False
+        mood = "sad"
+        update_display()
+        return
+    
+    old_cwd = os.getcwd()
+    os.chdir(bleeding_path)
     try:
         cmd = ['python3', 'bleeding.py', 'deauth', mac, '--ble', '--timeout', str(ATTACK_TIMEOUT)]
         subprocess.run(cmd)
     except Exception as e:
         print(f"Erro Ataque: {e}")
+    finally:
+        # Sempre retorna ao diretório original
+        try:
+            os.chdir(old_cwd)
+        except:
+            pass
     
     attacking = False
     mood = "happy" if len(targets) > 0 else "bored"
@@ -282,42 +337,100 @@ def stop_bleeding_attack():
 
 # ================= DISPLAY MANAGER =================
 
-def draw_face(draw, x, y, mood_state):
-    """Desenha uma face simples baseada no mood (inspirado no Pwnagotchi)"""
-    # Cabeça (círculo)
-    draw.ellipse([x, y, x+30, y+30], outline=0, width=1)
+def draw_vampigotchi_chibi(draw, x, y, mood_state):
+    """Desenha o VampiGotchi em estilo pixel art chibi baseado na imagem"""
+    # Cabeça redonda (pixel art style com contorno grosso)
+    draw.ellipse([x+2, y+4, x+28, y+30], outline=0, width=2)
     
-    # Olhos e boca baseados no mood
-    if mood_state == "happy":
-        # Olhos felizes
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Sorriso
-        draw.arc([x+8, y+15, x+22, y+25], start=0, end=180, fill=0, width=2)
-    elif mood_state == "excited":
-        # Olhos grandes
-        draw.ellipse([x+7, y+9, x+13, y+15], fill=0)
-        draw.ellipse([x+17, y+9, x+23, y+15], fill=0)
-        # Sorriso grande
-        draw.arc([x+6, y+14, x+24, y+28], start=0, end=180, fill=0, width=2)
+    # Orelhas pontudas no topo da cabeça (estilo pixel art)
+    # Orelha esquerda (triângulo)
+    draw.polygon([(x+5, y+6), (x+7, y+2), (x+9, y+6)], fill=0)
+    # Orelha direita (triângulo)
+    draw.polygon([(x+21, y+6), (x+23, y+2), (x+25, y+6)], fill=0)
+    
+    # Cabelo escuro com franja (desenha como retângulos pixelados)
+    # Topo da cabeça (cabelo preto)
+    draw.rectangle([x+5, y+5, x+25, y+9], fill=0)
+    # Franja (parte da frente)
+    draw.rectangle([x+6, y+8, x+24, y+11], fill=0)
+    # Lados do cabelo (laterais)
+    draw.rectangle([x+3, y+8, x+7, y+14], fill=0)
+    draw.rectangle([x+23, y+8, x+27, y+14], fill=0)
+    # Cabelo na parte de trás
+    draw.arc([x+5, y+10, x+25, y+18], start=180, end=360, fill=0, width=2)
+    
+    # Face (área clara dentro do cabelo)
+    draw.ellipse([x+7, y+9, x+23, y+25], fill=255, outline=0, width=1)
+    
+    # Bochechas com blush (desenha círculos com contorno fino para simular cinza)
+    draw.ellipse([x+9, y+17, x+12, y+20], outline=0, width=1)
+    draw.ellipse([x+18, y+17, x+21, y+20], outline=0, width=1)
+    
+    # Olhos baseados no mood
+    if mood_state == "happy" or mood_state == "excited":
+        # Olho esquerdo grande e redondo (abrindo bem)
+        draw.ellipse([x+9, y+14, x+13, y+18], fill=0)
+        # Olho direito fechado (wink) - linha curva para cima
+        draw.arc([x+17, y+14, x+21, y+18], start=0, end=180, fill=0, width=2)
+        # Brilho no olho esquerdo
+        draw.point([x+11, y+16], fill=255)
     elif mood_state == "angry":
-        # Olhos fechados/bravos
-        draw.line([x+8, y+12, x+12, y+10], fill=0, width=2)
-        draw.line([x+18, y+10, x+22, y+12], fill=0, width=2)
-        # Boca brava
-        draw.arc([x+10, y+20, x+20, y+28], start=180, end=360, fill=0, width=2)
+        # Olhos bravos (linhas inclinadas)
+        draw.line([x+9, y+17, x+13, y+14], fill=0, width=2)
+        draw.line([x+17, y+17, x+21, y+14], fill=0, width=2)
     elif mood_state == "sad":
-        # Olhos tristes
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Boca triste
-        draw.arc([x+8, y+20, x+22, y+28], start=180, end=360, fill=0, width=2)
+        # Olhos tristes (círculos com arco para baixo)
+        draw.ellipse([x+9, y+14, x+13, y+18], fill=0)
+        draw.ellipse([x+17, y+14, x+21, y+18], fill=0)
+        # Linhas de lágrimas
+        draw.line([x+11, y+19, x+11, y+22], fill=0, width=1)
+        draw.line([x+19, y+19, x+19, y+22], fill=0, width=1)
+    else:  # bored ou padrão
+        # Olho esquerdo grande e redondo
+        draw.ellipse([x+9, y+14, x+13, y+18], fill=0)
+        # Olho direito fechado (wink) - padrão fofo
+        draw.arc([x+17, y+14, x+21, y+18], start=0, end=180, fill=0, width=2)
+        # Brilho no olho esquerdo
+        draw.point([x+11, y+16], fill=255)
+    
+    # Presas pequenas no lábio superior
+    draw.rectangle([x+11, y+19, x+12, y+22], fill=0)  # Presa esquerda
+    draw.rectangle([x+18, y+19, x+19, y+22], fill=0)  # Presa direita
+    
+    # Boca baseada no mood
+    if mood_state == "happy" or mood_state == "excited":
+        # Sorriso pequeno e discreto
+        draw.arc([x+12, y+20, x+18, y+24], start=0, end=180, fill=0, width=1)
+    elif mood_state == "angry":
+        # Boca brava (linha para baixo)
+        draw.arc([x+13, y+22, x+17, y+26], start=180, end=360, fill=0, width=2)
+    elif mood_state == "sad":
+        # Boca triste (curva para baixo)
+        draw.arc([x+12, y+22, x+18, y+26], start=180, end=360, fill=0, width=1)
     else:  # bored
-        # Olhos normais
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Linha reta (neutro)
-        draw.line([x+10, y+22, x+20, y+22], fill=0, width=2)
+        # Boca neutra (linha reta pequena)
+        draw.line([x+13, y+22, x+17, y+22], fill=0, width=1)
+    
+    # Capa de vampiro com gola alta (desenha antes do laço)
+    # Corpo da capa (parte de trás)
+    draw.arc([x-2, y+24, x+32, y+42], start=0, end=180, fill=0, width=2)
+    
+    # Gola alta da capa (desenha por cima do pescoço)
+    draw.arc([x+4, y+21, x+26, y+27], start=180, end=360, fill=0, width=2)
+    # Parte interna da gola (branca - contrasta com preto)
+    draw.arc([x+9, y+23, x+21, y+27], start=180, end=360, fill=255, width=1)
+    
+    # Laço no pescoço (sobreposto à gola)
+    # Parte central do laço (vertical)
+    draw.rectangle([x+13, y+25, x+17, y+27], fill=255, outline=0, width=1)
+    # Laço esquerdo (borboleta)
+    draw.ellipse([x+10, y+26, x+14, y+29], fill=255, outline=0, width=1)
+    draw.ellipse([x+9, y+27, x+13, y+30], fill=255, outline=0, width=1)
+    # Laço direito (borboleta)
+    draw.ellipse([x+16, y+26, x+20, y+29], fill=255, outline=0, width=1)
+    draw.ellipse([x+17, y+27, x+21, y+30], fill=255, outline=0, width=1)
+    # Centro do laço (quadrado preto no meio)
+    draw.rectangle([x+13, y+27, x+17, y+29], fill=0)
 
 def get_uptime_str():
     """Retorna string de uptime formatada"""
@@ -336,21 +449,22 @@ def update_display():
         current_mode = mode
         current_ip = ip
         
-        # V4: Dimensões são height x width (122 x 250)
-        # Cria imagem no formato correto para V4
-        image = Image.new('1', (epd.height, epd.width), 255)  # height=122, width=250
+        # V4: Dimensões são width x height (250 x 122) - VERTICAL
+        # Cria imagem no formato vertical para melhor aproveitamento
+        image = Image.new('1', (epd.width, epd.height), 255)  # width=250, height=122, BRANCO
         draw = ImageDraw.Draw(image)
         
-        # Layout inspirado no Pwnagotchi e Bjorn
+        # Layout VERTICAL otimizado
         # ========== HEADER ==========
-        draw.text((5, 2), "BLEeding Pi", font=font_large, fill=0)
+        draw.text((5, 2), "VampiGotchi", font=font_large, fill=0)
         
-        # ========== FACE/MOOD (lado esquerdo) ==========
-        draw_face(draw, 5, 25, mood)
+        # ========== VAMPIGOTCHI CHIBI (lado esquerdo) ==========
+        # Personagem posicionado para melhor visualização no modo vertical
+        draw_vampigotchi_chibi(draw, 3, 18, mood)
         
-        # ========== INFO PRINCIPAL (lado direito da face) ==========
-        x_info = 40
-        y_info = 25
+        # ========== INFO PRINCIPAL (lado direito do personagem) ==========
+        x_info = 38
+        y_info = 20
         
         # Status
         status_text = "IDLE"
@@ -372,16 +486,16 @@ def update_display():
         ip_short = ip[:12] if len(ip) > 12 else ip
         draw.text((x_info, y_info), ip_short, font=font_small, fill=0)
         
-        # ========== ESTATÍSTICAS (abaixo da face) ==========
-        y_stats = 60
-        draw.text((5, y_stats), f"Targets: {len(targets)}", font=font_small, fill=0)
+        # ========== ESTATÍSTICAS (abaixo do personagem, lado esquerdo) ==========
+        y_stats = 58
+        draw.text((5, y_stats), f"T:{len(targets)}", font=font_small, fill=0)
         y_stats += 12
-        draw.text((5, y_stats), f"Scans: {total_scans}", font=font_small, fill=0)
+        draw.text((5, y_stats), f"S:{total_scans}", font=font_small, fill=0)
         y_stats += 12
-        draw.text((5, y_stats), f"Attacks: {total_attacks}", font=font_small, fill=0)
+        draw.text((5, y_stats), f"A:{total_attacks}", font=font_small, fill=0)
         
         # ========== TARGET INFO (se selecionado ou atacando) ==========
-        y_target = 100
+        y_target = 95
         if attacking and selected_target:
             target_info = targets_info.get(selected_target, {})
             target_name = target_info.get('name', 'Unknown')[:15]
@@ -399,39 +513,52 @@ def update_display():
                 draw.text((5, y_target), f"RSSI: {rssi} dBm", font=font_small, fill=0)
         
         # ========== UPTIME (rodapé) ==========
-        y_footer = 115
+        y_footer = 112
         uptime = get_uptime_str()
         draw.line([(0, y_footer-2), (epd.width, y_footer-2)], fill=0)
-        draw.text((5, y_footer), f"Uptime: {uptime}", font=font_small, fill=0)
+        draw.text((5, y_footer), f"Up:{uptime}", font=font_small, fill=0)
 
-        # V4: Otimização de atualização
-        # Primeira atualização sempre FULL, depois tenta PART para velocidade
-        global display_update_count
+        # V4: Otimização de atualização - EVITA PISCAR
+        global display_update_count, last_full_update
         display_update_count += 1
         
-        # Primeira atualização e a cada 10 atualizações usa FULL para limpar ghosting
-        if display_update_count == 1 or display_update_count % 10 == 0:
+        # Controle de atualização: FULL apenas quando necessário, PART para o resto
+        # Primeira atualização sempre FULL
+        if display_update_count == 1:
+            epd.init()
+            epd.Clear(0xFF)  # Limpa o display para branco
+            epd.display(epd.getbuffer(image))
+            last_full_update = datetime.now()
+        # FULL a cada 30 atualizações (aproximadamente 1.5 minutos) para limpar ghosting
+        elif display_update_count % 30 == 0:
             epd.init()
             epd.display(epd.getbuffer(image))
+            last_full_update = datetime.now()
         else:
-            # Usa PART_UPDATE para atualizações mais rápidas (V4 suporta)
+            # Usa PART_UPDATE para atualizações rápidas sem piscar
             try:
                 epd.init(epd.PART_UPDATE)
                 epd.displayPartial(epd.getbuffer(image))
-            except (AttributeError, Exception):
-                # Se PART_UPDATE não estiver disponível ou falhar, usa FULL
-                epd.init()
-                epd.display(epd.getbuffer(image))
+            except (AttributeError, Exception) as e:
+                # Se PART_UPDATE falhar, usa FULL mas apenas se não atualizou há mais de 5 segundos
+                now = datetime.now()
+                if last_full_update is None or (now - last_full_update).total_seconds() > 5:
+                    epd.init()
+                    epd.display(epd.getbuffer(image))
+                    last_full_update = now
             
     except Exception as e:
         print(f"Erro ao desenhar: {e}")
 
 def run_display_loop():
+    global last_full_update
+    last_full_update = None
     init_display_safe()
     # Pequeno delay para garantir que o display ligou antes do Flask
     time.sleep(2) 
     
     last_activity = datetime.now()
+    last_update = datetime.now()
     
     while True:
         # Atualiza mood para "bored" se não houver atividade há mais de 30 segundos
@@ -443,8 +570,23 @@ def run_display_loop():
         else:
             last_activity = datetime.now()
         
-        update_display()
-        time.sleep(3)
+        # Atualiza display apenas se necessário (mudança de estado ou a cada 5 segundos)
+        now = datetime.now()
+        time_since_update = (now - last_update).total_seconds()
+        
+        # Atualiza imediatamente se houver mudança de estado, senão atualiza a cada 5 segundos
+        needs_update = (
+            attacking or 
+            scan_status == "Scanning..." or 
+            time_since_update >= 5 or
+            display_update_count == 0
+        )
+        
+        if needs_update:
+            update_display()
+            last_update = now
+        
+        time.sleep(2)  # Reduzido para 2 segundos mas atualiza apenas quando necessário
 
 # ================= WEB SERVER =================
 app = Flask(__name__)
@@ -455,87 +597,632 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BLEeding Ultimate</title>
+    <title>🩸 BLEeding Ultimate - Enhanced Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-        .card { background: #333; padding: 20px; border-radius: 10px; }
-        h1, h2 { color: #00d4ff; }
-        button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin: 5px; }
-        .btn-blue { background: #00d4ff; color: #000; }
-        .btn-red { background: #ff6b6b; color: #fff; }
-        .btn-green { background: #4cd964; color: #000; }
-        input { padding: 10px; width: 100%; margin: 10px 0; background: #444; border: 1px solid #555; color: #fff; box-sizing: border-box; }
-        ul { list-style: none; padding: 0; text-align: left; }
-        li { background: #444; margin: 5px 0; padding: 10px; border-radius: 5px; font-family: monospace; cursor: pointer; }
-        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 5px; font-weight: bold; }
-        .idle { background: #4cd964; color: #000; }
-        .scanning { background: #ffd43b; color: #000; }
-        .attacking { background: #ff6b6b; color: #fff; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #eaeaea;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #a0a0a0;
+            font-size: 0.9em;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.2);
+        }
+        
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card h2 i {
+            font-size: 1.2em;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            color: #a0a0a0;
+            font-weight: 500;
+        }
+        
+        .info-value {
+            color: #00ff88;
+            font-weight: 600;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95em;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(-1px);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #000;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #00ff88, #00cc66);
+            color: #000;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b, #cc5555);
+            color: #fff;
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #ffd93d, #ccac30);
+            color: #000;
+        }
+        
+        input, select {
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 0.95em;
+            width: 100%;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #00d4ff;
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        input::placeholder {
+            color: #808080;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #a0a0a0;
+            font-weight: 500;
+        }
+        
+        .status-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+        }
+        
+        .status-badge {
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: 700;
+            font-size: 1.1em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .status-idle {
+            background: linear-gradient(135deg, #4cd964, #3cb550);
+            color: #000;
+        }
+        
+        .status-scanning {
+            background: linear-gradient(135deg, #ffd93d, #ccac30);
+            color: #000;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-attacking {
+            background: linear-gradient(135deg, #ff6b6b, #cc5555);
+            color: #fff;
+            animation: shake 0.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-box {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #00d4ff;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #a0a0a0;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .target-list {
+            list-style: none;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px 0;
+        }
+        
+        .target-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .target-list::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        
+        .target-list::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 4px;
+        }
+        
+        li.target-item {
+            background: rgba(255, 255, 255, 0.08);
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        li.target-item:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: #00d4ff;
+            transform: translateX(5px);
+        }
+        
+        .target-name {
+            font-weight: 600;
+            color: #00d4ff;
+            margin-bottom: 5px;
+        }
+        
+        .target-mac {
+            font-size: 0.85em;
+            color: #a0a0a0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .target-rssi {
+            color: #00ff88;
+            font-weight: 600;
+        }
+        
+        .mood-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            font-weight: 500;
+        }
+        
+        .mood-icon {
+            font-size: 1.3em;
+        }
+        
+        .config-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .color-picker-wrapper input[type="color"] {
+            width: 50px;
+            height: 40px;
+            padding: 0;
+            margin: 0;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .no-devices {
+            text-align: center;
+            padding: 40px;
+            color: #808080;
+        }
+        
+        .no-devices i {
+            font-size: 3em;
+            margin-bottom: 15px;
+            color: #404040;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
     </style>
     <script>
         setInterval(function() {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('status-badge').className = 'status-badge ' + data.status_class;
+                    document.getElementById('status-badge').className = 'status-badge status-' + data.status_class;
+                    document.getElementById('status-badge').textContent = data.status_text;
                     document.getElementById('status-text').textContent = data.status_text;
                     document.getElementById('target-count').textContent = data.count;
                     document.getElementById('stat-scans').textContent = data.stats.total_scans;
                     document.getElementById('stat-attacks').textContent = data.stats.total_attacks;
                     document.getElementById('stat-mood').textContent = data.stats.mood;
+                    document.getElementById('stat-uptime').textContent = data.stats.uptime;
+                    
                     const list = document.getElementById('target-list');
                     const select = document.getElementById('target-select');
+                    
                     document.getElementById('scan-btn').disabled = data.scanning;
                     document.getElementById('attack-btn').disabled = !data.selected_target || data.attacking;
                     document.getElementById('stop-btn').disabled = !data.attacking;
+                    
+                    if (data.scanning) {
+                        document.getElementById('scan-btn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Escaneando...';
+                    } else {
+                        document.getElementById('scan-btn').innerHTML = '<i class="fas fa-broadcast-tower"></i> SCAN BLE';
+                    }
+                    
+                    if (data.attacking) {
+                        document.getElementById('attack-btn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Atacando...';
+                        document.getElementById('stop-btn').innerHTML = '<i class="fas fa-stop"></i> PARAR ATAQUE';
+                    } else {
+                        document.getElementById('attack-btn').innerHTML = '<i class="fas fa-crosshairs"></i> ATTACK';
+                        document.getElementById('stop-btn').innerHTML = '<i class="fas fa-pause"></i> STOP';
+                    }
+                    
                     list.innerHTML = '';
-                    select.innerHTML = '<option value="">Selecione...</option>';
-                    data.targets_info.forEach(target => {
-                        const li = document.createElement('li');
-                        li.innerHTML = `<strong>${target.name || 'Unknown'}</strong><br><small>${target.mac}</small>${target.rssi ? ' <span style="color: #00d4ff;">(' + target.rssi + ' dBm)</span>' : ''}`;
-                        li.onclick = function() { selectTarget(target.mac); };
-                        list.appendChild(li);
-                        const option = document.createElement('option');
-                        option.value = target.mac;
-                        option.textContent = `${target.name || 'Unknown'} - ${target.mac}`;
-                        select.appendChild(option);
-                    });
-                });
+                    select.innerHTML = '<option value="">Selecione um alvo...</option>';
+                    
+                    if (data.targets_info.length === 0) {
+                        list.innerHTML = '<div class="no-devices"><i class="fas fa-search"></i><p>Nenhum dispositivo encontrado</p></div>';
+                    } else {
+                        data.targets_info.forEach(target => {
+                            const li = document.createElement('li');
+                            li.className = 'target-item';
+                            li.innerHTML = `
+                                <div class="target-name"><i class="fas fa-bluetooth-b"></i> ${target.name || 'Unknown'}</div>
+                                <div class="target-mac">${target.mac}</div>
+                                ${target.rssi ? `<div class="target-rssi"><i class="fas fa-signal"></i> ${target.rssi} dBm</div>` : ''}
+                            `;
+                            li.onclick = function() { selectTarget(target.mac); };
+                            list.appendChild(li);
+                            
+                            const option = document.createElement('option');
+                            option.value = target.mac;
+                            option.textContent = `${target.name || 'Unknown'} - ${target.mac}`;
+                            select.appendChild(option);
+                        });
+                    }
+                    
+                    // Update mood indicator
+                    updateMoodIndicator(data.stats.mood);
+                })
+                .catch(error => console.error('Error:', error));
         }, 2000);
         
         function selectTarget(mac) {
             document.getElementById('target-select').value = mac;
+            // Scroll to selected option
+            const select = document.getElementById('target-select');
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === mac) {
+                    select.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        function updateMoodIndicator(mood) {
+            const moodMap = {
+                'bored': { icon: '😴', label: 'Entediado' },
+                'happy': { icon: '😊', label: 'Feliz' },
+                'excited': { icon: '🤩', label: 'Excitado' },
+                'sad': { icon: '😢', label: 'Triste' },
+                'angry': { icon: '😠', label: 'Bravo' }
+            };
+            
+            const moodData = moodMap[mood] || moodMap['bored'];
+            document.getElementById('mood-icon').textContent = moodData.icon;
+            document.getElementById('mood-label').textContent = moodData.label;
+        }
+        
+        function applyTheme() {
+            const bgColor = document.getElementById('bg-color').value;
+            const cardColor = document.getElementById('card-color').value;
+            const textColor = document.getElementById('text-color').value;
+            
+            document.body.style.background = bgColor;
+            document.querySelectorAll('.card').forEach(card => {
+                card.style.background = cardColor;
+            });
+            document.body.style.color = textColor;
         }
     </script>
 </head>
 <body>
     <div class="container">
-        <h1>🔓 BLEeding Ultimate</h1>
-        <div class="card">
-            <h2>Configuração de Rede</h2>
-            <p><strong>Modo:</strong> {{ network_mode }} ({{ network_ip }})</p>
-            <h3>Modo AP (Hotspot)</h3>
-            <form action="/set_ap" method="POST"><button type="submit" class="btn-blue">Ativar AP ({{ ap_ssid }})</button></form>
-            <h3>Modo Cliente (Wi-Fi)</h3>
-            <form action="/set_client" method="POST"><input type="text" name="ssid" placeholder="Nome da Rede" required><input type="password" name="password" placeholder="Senha" required><button type="submit" class="btn-blue">Conectar</button></form>
+        <div class="header">
+            <h1><i class="fas fa-bluetooth-b"></i> BLEeding Ultimate</h1>
+            <p>Interface Avançada de Monitoramento Bluetooth</p>
         </div>
+        
         <div class="card">
-            <h2>Controle BLEeding</h2>
-            <p>Status: <span id="status-badge" class="status-badge idle">Idle</span></p>
-            <p id="status-text">Aguardando...</p>
-            <button id="scan-btn" onclick="location.href='/scan'" class="btn-green">SCAN BLE</button>
-            <hr style="border-color: #555;">
-            <p>Alvos Encontrados: <span id="target-count">0</span></p>
-            <p style="font-size: 12px; color: #888;">Scans: <span id="stat-scans">0</span> | Attacks: <span id="stat-attacks">0</span> | Mood: <span id="stat-mood">bored</span></p>
-            <div style="display: flex; gap: 10px;"><select id="target-select"></select></div>
-            <div style="display: flex; gap: 10px;"><button id="attack-btn" onclick="startAttack()" class="btn-red" disabled>ATTACK</button><button id="stop-btn" onclick="stopAttack()" class="btn-blue" disabled>STOP</button></div>
-            <ul id="target-list" style="margin-top: 10px; max-height: 150px; overflow-y: auto;"></ul>
+            <h2><i class="fas fa-network-wired"></i> Configuração de Rede</h2>
+            <div class="info-row">
+                <span class="info-label">Modo Atual:</span>
+                <span class="info-value">{{ network_mode }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Endereço IP:</span>
+                <span class="info-value">{{ network_ip }}</span>
+            </div>
+            
+            <div class="button-group">
+                <form action="/set_ap" method="POST" style="display: contents;">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-wifi"></i> Modo AP ({{ ap_ssid }})
+                    </button>
+                </form>
+                <form action="/set_client" method="POST" style="display: contents;">
+                    <input type="text" name="ssid" placeholder="Nome da Rede" required style="display: none;">
+                    <input type="password" name="password" placeholder="Senha" required style="display: none;">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-plug"></i> Conectar Wi-Fi
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2><i class="fas fa-palette"></i> Personalização da Interface</h2>
+            <div class="config-section">
+                <div>
+                    <label>Cor de Fundo</label>
+                    <div class="color-picker-wrapper">
+                        <input type="color" id="bg-color" value="#1a1a2e" onchange="applyTheme()">
+                        <span style="font-size: 0.9em; color: #a0a0a0;">Clique para alterar</span>
+                    </div>
+                </div>
+                <div>
+                    <label>Cor dos Cards</label>
+                    <div class="color-picker-wrapper">
+                        <input type="color" id="card-color" value="#16213e" onchange="applyTheme()">
+                        <span style="font-size: 0.9em; color: #a0a0a0;">Clique para alterar</span>
+                    </div>
+                </div>
+                <div>
+                    <label>Cor do Texto</label>
+                    <div class="color-picker-wrapper">
+                        <input type="color" id="text-color" value="#eaeaea" onchange="applyTheme()">
+                        <span style="font-size: 0.9em; color: #a0a0a0;">Clique para alterar</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2><i class="fas fa-crosshairs"></i> Controle BLE</h2>
+            <div class="status-container">
+                <span class="status-badge status-idle" id="status-badge">Idle</span>
+                <span id="status-text" style="color: #a0a0a0;">Aguardando...</span>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value" id="target-count">0</div>
+                    <div class="stat-label">Alvos</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="stat-scans">0</div>
+                    <div class="stat-label">Scans</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="stat-attacks">0</div>
+                    <div class="stat-label">Ataques</div>
+                </div>
+                <div class="stat-box">
+                    <div class="mood-indicator">
+                        <span id="mood-icon" class="mood-icon">😴</span>
+                        <span id="mood-label" style="color: #a0a0a0;">Entediado</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button id="scan-btn" onclick="location.href='/scan'" class="btn-success">
+                    <i class="fas fa-broadcast-tower"></i> SCAN BLE
+                </button>
+                <button id="attack-btn" onclick="startAttack()" class="btn-danger" disabled>
+                    <i class="fas fa-crosshairs"></i> ATTACK
+                </button>
+                <button id="stop-btn" onclick="stopAttack()" class="btn-warning" disabled>
+                    <i class="fas fa-pause"></i> STOP
+                </button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2><i class="fas fa-list"></i> Alvos Encontrados</h2>
+            <select id="target-select">
+                <option value="">Selecione um alvo...</option>
+            </select>
+            <ul id="target-list" class="target-list">
+                <div class="no-devices">
+                    <i class="fas fa-search"></i>
+                    <p>Nenhum dispositivo encontrado</p>
+                </div>
+            </ul>
+        </div>
+        
+        <div class="card">
+            <h2><i class="fas fa-clock"></i> Informações do Sistema</h2>
+            <div class="info-row">
+                <span class="info-label">Tempo de Execução:</span>
+                <span class="info-value" id="stat-uptime">0d 00h 00m</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Versão:</span>
+                <span class="info-value">4.0 Ultimate</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Display:</span>
+                <span class="info-value">E-Paper V4 (Fundo Branco)</span>
+            </div>
         </div>
     </div>
+    
     <script>
-        function startAttack() { var mac = document.getElementById('target-select').value; if(!mac) return alert('Selecione um alvo!'); fetch('/attack', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'mac=' + mac }); }
-        function stopAttack() { fetch('/stop', { method: 'POST' }); }
+        function startAttack() {
+            var mac = document.getElementById('target-select').value;
+            if(!mac) {
+                alert('⚠️ Por favor, selecione um alvo primeiro!');
+                return;
+            }
+            fetch('/attack', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+                body: 'mac=' + mac 
+            });
+        }
+        
+        function stopAttack() {
+            fetch('/stop', { method: 'POST' });
+        }
+        
+        // Initialize mood on page load
+        updateMoodIndicator('bored');
     </script>
 </body>
 </html>
@@ -633,8 +1320,9 @@ if __name__ == '__main__':
     
     # Inicia Flask
     print("=" * 50)
-    print("🩸 BLEeding Ultimate v4 - Pwnagotchi Style")
+    print("🩸 BLEeding Ultimate v4 - Enhanced Interface")
     print(f"📡 Para conectar, use: http://{get_ip_address()}")
     print(f"🎭 Mood inicial: {mood}")
+    print(f"🖼️  Display: Fundo BRANCO ativado")
     print("=" * 50)
     app.run(host='0.0.0.0', port=80, debug=False)
