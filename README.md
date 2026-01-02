@@ -36,8 +36,8 @@ Flash **Raspberry Pi OS (Legacy)** to your SD card using [Raspberry Pi Imager](h
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/VampGotchi.git
-cd VampGotchi
+git clone https://github.com/pantojinho/VAMPIGOTCHI.git
+cd VAMPIGOTCHI
 
 # Make install script executable (if needed)
 chmod +x install.sh
@@ -204,7 +204,7 @@ VampGotchi/
 
 3. Run:
    ```bash
-   sudo python3 vampgotchi.py
+   sudo python3 vampigotchi.py
    ```
 
 ---
@@ -241,7 +241,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📸 Screenshots
 
-*Add screenshots of your device here!*
+![VampGotchi Display](Pixel%20Arte%20IA.png)
+
+*Interface do display E-Paper mostrando o personagem vampiro e estatísticas do jogo*
 
 ---
 

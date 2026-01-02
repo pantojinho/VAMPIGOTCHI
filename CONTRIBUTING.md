@@ -13,7 +13,7 @@ Thank you for your interest in contributing to VampGotchi! This document provide
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/yourusername/VampGotchi/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/pantojinho/VAMPIGOTCHI/issues)
 2. If not, create a new issue with:
    - Clear title and description
    - Steps to reproduce
@@ -99,8 +99,8 @@ def scan_bluetooth_devices(timeout=5):
 
 1. **Clone your fork**:
    ```bash
-   git clone https://github.com/yourusername/VampGotchi.git
-   cd VampGotchi
+   git clone https://github.com/pantojinho/VAMPIGOTCHI.git
+   cd VAMPIGOTCHI
    ```
 
 2. **Set up virtual environment** (recommended):

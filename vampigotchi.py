@@ -82,6 +82,17 @@ total_targets_found = 0
 mood = "bored"  # bored, happy, excited, sad, angry
 display_update_count = 0
 
+# Character stats (VampGotchi stats)
+hunger = 800  # 0-1000
+blood = 100  # 0-100 (percentage)
+level = 5
+exp = 150
+exp_to_next = 200
+money = 400
+player_level = 25
+activity_messages = []  # List of recent activity messages
+coffin_status = "SLEEPING"  # SLEEPING, AWAKE, etc.
+
 # E-Paper display
 epd = None
 font = None
@@ -259,9 +270,12 @@ def restart_services_client(ssid, password):
 def run_bleeding_scan():
     """Run BLE scan using BLEeding"""
     global targets, targets_info, scan_status, total_scans, total_targets_found, mood, last_scan_output
+    global hunger, blood, exp, level, exp_to_next, money, activity_messages
     
     scan_status = "Scanning..."
     mood = "excited"
+    hunger = max(0, hunger - 10)  # Scanning consumes hunger
+    activity_messages.append("> Scanning...")
     update_display()
     
     bleeding_path = config.get("bleeding_path", "/root/BLEeding")
@@ -297,8 +311,20 @@ def run_bleeding_scan():
         
         if len(targets) > 0:
             mood = "happy"
+            # Reward for finding devices
+            exp += len(targets) * 5
+            money += len(targets) * 2
+            blood = min(100, blood + 5)
+            activity_messages.append("> Found devices!")
+            # Check for level up
+            if exp >= exp_to_next:
+                level += 1
+                exp = 0
+                exp_to_next = int(exp_to_next * 1.5)
+                activity_messages.append("> Level up!")
         else:
             mood = "sad"
+            activity_messages.append("> No devices found")
         
         scan_status = "Done"
         logger.info(f"Scan completed: {len(targets)} devices found")
@@ -371,8 +397,20 @@ def run_bleeding_scan():
             
             if len(targets) > 0:
                 mood = "happy"
+                # Reward for finding devices
+                exp += len(targets) * 5
+                money += len(targets) * 2
+                blood = min(100, blood + 5)
+                activity_messages.append("> Found devices!")
+                # Check for level up
+                if exp >= exp_to_next:
+                    level += 1
+                    exp = 0
+                    exp_to_next = int(exp_to_next * 1.5)
+                    activity_messages.append("> Level up!")
             else:
                 mood = "sad"
+                activity_messages.append("> No devices found")
             
             scan_status = "Done"
             os.chdir(old_cwd)
@@ -393,10 +431,22 @@ def run_bleeding_scan():
 def run_bleeding_attack_thread(mac):
     """Run BLE attack in a separate thread"""
     global attacking, attack_thread, total_attacks, mood
+    global hunger, blood, exp, level, exp_to_next, money, activity_messages
     
     attacking = True
     mood = "angry"
     total_attacks += 1
+    hunger = max(0, hunger - 20)  # Attacking consumes more hunger
+    blood = min(100, blood + 10)  # But increases blood
+    exp += 15
+    money += 10
+    activity_messages.append("> Attacking target!")
+    # Check for level up
+    if exp >= exp_to_next:
+        level += 1
+        exp = 0
+        exp_to_next = int(exp_to_next * 1.5)
+        activity_messages.append("> Level up!")
     update_display()
     
     bleeding_path = config.get("bleeding_path", "/root/BLEeding")
@@ -414,6 +464,7 @@ def run_bleeding_attack_thread(mac):
     
     attacking = False
     mood = "happy" if len(targets) > 0 else "bored"
+    activity_messages.append("> Attack completed!")
     update_display()
 
 def stop_bleeding_attack():
@@ -461,62 +512,90 @@ def init_display_safe():
         logger.info("System will continue running without display")
         epd = None
 
-def draw_vampire_sprite(draw, x, y, mood_state):
-    """Draw vampire pixel art sprite based on mood"""
-    # Head (circle)
-    draw.ellipse([x, y, x+30, y+30], outline=0, width=1)
+def draw_battery_icon(draw, x, y, fill_color):
+    """Draw battery icon"""
+    # Battery outline
+    draw.rectangle([x, y, x+12, y+6], outline=fill_color, width=1)
+    # Battery tip
+    draw.rectangle([x+12, y+2, x+14, y+4], fill=fill_color)
+    # Battery bars (full)
+    draw.rectangle([x+2, y+1, x+4, y+5], fill=fill_color)
+    draw.rectangle([x+5, y+1, x+7, y+5], fill=fill_color)
+    draw.rectangle([x+8, y+1, x+10, y+5], fill=fill_color)
+
+def draw_wifi_icon(draw, x, y, fill_color):
+    """Draw Wi-Fi icon"""
+    # Wi-Fi signal waves
+    draw.arc([x, y+2, x+8, y+10], start=45, end=135, fill=fill_color, width=1)
+    draw.arc([x+2, y+4, x+6, y+8], start=45, end=135, fill=fill_color, width=1)
+    draw.ellipse([x+3, y+5, x+5, y+7], fill=fill_color)
+
+def draw_bat_icon(draw, x, y, fill_color):
+    """Draw bat icon"""
+    # Bat body
+    draw.ellipse([x+3, y+2, x+7, y+6], fill=fill_color)
+    # Bat wings
+    draw.polygon([(x, y+4), (x+2, y+2), (x+3, y+4)], fill=fill_color)
+    draw.polygon([(x+7, y+4), (x+8, y+2), (x+10, y+4)], fill=fill_color)
+
+def draw_coffin_icon(draw, x, y, fill_color):
+    """Draw coffin icon"""
+    # Coffin body
+    draw.rectangle([x, y+2, x+8, y+6], fill=fill_color)
+    # Coffin lid (open)
+    draw.arc([x-1, y, x+9, y+4], start=180, end=0, fill=fill_color, width=1)
+
+def draw_potion_icon(draw, x, y, fill_color):
+    """Draw potion bottle icon"""
+    # Bottle body
+    draw.rectangle([x+2, y+2, x+6, y+6], outline=fill_color, width=1)
+    # Bottle neck
+    draw.rectangle([x+3, y, x+5, y+2], fill=fill_color)
+    # Liquid inside
+    draw.rectangle([x+3, y+3, x+5, y+5], fill=fill_color)
+
+def draw_vampire_chibi(draw, x, y, mood_state, fill_color):
+    """Draw chibi-style vampire character like in the image"""
+    # Head (smaller to fit display)
+    draw.ellipse([x+3, y+3, x+25, y+25], outline=fill_color, width=1)
     
-    # Bat ears (vampire characteristic)
-    draw.polygon([(x+5, y+2), (x+8, y+8), (x+5, y+6)], fill=0)  # Left ear
-    draw.polygon([(x+25, y+2), (x+22, y+8), (x+25, y+6)], fill=0)  # Right ear
+    # Hair forming horns (black hair)
+    draw.polygon([(x+5, y+1), (x+8, y+5), (x+7, y+7)], fill=fill_color)  # Left horn
+    draw.polygon([(x+21, y+1), (x+18, y+5), (x+19, y+7)], fill=fill_color)  # Right horn
     
-    # Collar/cape (vampire aesthetic)
-    draw.arc([x+5, y+28, x+25, y+35], start=0, end=180, fill=0, width=2)
-    
-    # Eyes and mouth based on mood
-    if mood_state == "happy":
-        # Happy eyes
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Smile with fangs
-        draw.arc([x+8, y+15, x+22, y+25], start=0, end=180, fill=0, width=2)
-        # Fangs
-        draw.rectangle([x+11, y+20, x+12, y+23], fill=0)
-        draw.rectangle([x+18, y+20, x+19, y+23], fill=0)
-        
-    elif mood_state == "excited":
-        # Big excited eyes
-        draw.ellipse([x+7, y+9, x+13, y+15], fill=0)
-        draw.ellipse([x+17, y+9, x+23, y+15], fill=0)
-        # Big open mouth with prominent fangs
-        draw.arc([x+6, y+14, x+24, y+28], start=0, end=180, fill=0, width=2)
-        # Big fangs
-        draw.rectangle([x+10, y+18, x+12, y+24], fill=0)
-        draw.rectangle([x+18, y+18, x+20, y+24], fill=0)
-        
+    # Eyes - winking (right eye closed)
+    if mood_state == "happy" or mood_state == "excited":
+        # Left eye open, right eye winking
+        draw.ellipse([x+8, y+11, x+11, y+14], fill=fill_color)  # Left eye
+        draw.line([x+17, y+12, x+20, y+12], fill=fill_color, width=2)  # Right eye winking
     elif mood_state == "angry":
-        # Angry slanted eyes
-        draw.line([x+8, y+12, x+12, y+10], fill=0, width=2)
-        draw.line([x+18, y+10, x+22, y+12], fill=0, width=2)
-        # Frown with bared fangs
-        draw.arc([x+10, y+20, x+20, y+28], start=180, end=360, fill=0, width=2)
-        # Fangs visible
-        draw.rectangle([x+11, y+23, x+13, y+26], fill=0)
-        draw.rectangle([x+17, y+23, x+19, y+26], fill=0)
-        
+        # Angry eyes
+        draw.line([x+8, y+13, x+11, y+11], fill=fill_color, width=2)  # Left
+        draw.line([x+17, y+11, x+20, y+13], fill=fill_color, width=2)  # Right
     elif mood_state == "sad":
         # Sad eyes
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Sad frown, no fangs visible
-        draw.arc([x+8, y+20, x+22, y+28], start=180, end=360, fill=0, width=2)
-        
+        draw.ellipse([x+8, y+11, x+11, y+14], fill=fill_color)
+        draw.ellipse([x+17, y+11, x+20, y+14], fill=fill_color)
     else:  # bored
-        # Neutral eyes
-        draw.ellipse([x+8, y+10, x+12, y+14], fill=0)
-        draw.ellipse([x+18, y+10, x+22, y+14], fill=0)
-        # Straight line (neutral)
-        draw.line([x+10, y+22, x+20, y+22], fill=0, width=2)
+        # Normal eyes
+        draw.ellipse([x+8, y+11, x+11, y+14], fill=fill_color)
+        draw.ellipse([x+17, y+11, x+20, y+14], fill=fill_color)
+    
+    # Small fangs
+    draw.rectangle([x+11, y+17, x+12, y+20], fill=fill_color)
+    draw.rectangle([x+17, y+17, x+18, y+20], fill=fill_color)
+    
+    # Cape with white collar
+    # Collar (white - inverted)
+    draw.arc([x+5, y+23, x+23, y+29], start=0, end=180, outline=fill_color, width=2)
+    # Cape body
+    draw.arc([x+3, y+25, x+25, y+35], start=0, end=180, fill=fill_color, width=2)
+    
+    # Bow tie (white - inverted)
+    draw.polygon([(x+12, y+22), (x+13, y+23), (x+14, y+22), (x+13, y+21)], outline=fill_color, width=1)
+    
+    # Ground line
+    draw.line([x, y+35, x+28, y+35], fill=fill_color, width=1)
 
 def get_uptime_str():
     """Get formatted uptime string"""
@@ -526,84 +605,127 @@ def get_uptime_str():
     return f"{delta.days}d {hours:02d}h {minutes:02d}m"
 
 def update_display():
-    """Update E-paper display"""
+    """Update E-paper display with VAMPIGOTCHI style layout"""
     if epd is None:
         return
     
     try:
         mode, ip = detect_mode()
-        global current_mode, current_ip, display_update_count
+        global current_mode, current_ip, display_update_count, hunger, blood, level, exp, exp_to_next, money, player_level, activity_messages, coffin_status
+        
         current_mode = mode
         current_ip = ip
+        
+        # Update stats based on activity
+        if attacking:
+            hunger = max(0, hunger - 5)
+            blood = min(100, blood + 2)
+            if len(activity_messages) == 0 or activity_messages[-1] != "> Attacking target!":
+                activity_messages.append("> Attacking target!")
+        elif scan_status == "Scanning...":
+            hunger = max(0, hunger - 2)
+            if len(activity_messages) == 0 or activity_messages[-1] != "> Scanning...":
+                activity_messages.append("> Scanning...")
+        elif len(targets) > 0:
+            if len(activity_messages) == 0 or "Feeling" not in activity_messages[-1]:
+                activity_messages.append("> Feeling spooky!")
+        
+        # Keep only last 3 messages
+        if len(activity_messages) > 3:
+            activity_messages = activity_messages[-3:]
+        
+        # Update coffin status
+        if not attacking and scan_status != "Scanning...":
+            coffin_status = "SLEEPING"
+        else:
+            coffin_status = "AWAKE"
         
         display_mode = config.get("display_mode", "black")
         bg_color = 0 if display_mode == "white" else 255
         fg_color = 255 if display_mode == "white" else 0
         
-        # Create image
+        # Create image (250x122 for V4)
         image = Image.new('1', (epd.height, epd.width), bg_color)
         draw = ImageDraw.Draw(image)
         
-        # Header
-        draw.text((5, 2), "VampGotchi", font=font_large, fill=fg_color)
+        # ========== TOP STATUS BAR ==========
+        y_top = 0
+        # Battery icon (left)
+        draw_battery_icon(draw, 2, y_top+1, fg_color)
         
-        # Vampire sprite
-        draw_vampire_sprite(draw, 5, 25, mood)
+        # Wi-Fi icon and text
+        draw_wifi_icon(draw, 18, y_top+1, fg_color)
+        draw.text((26, y_top), "wi", font=font_small, fill=fg_color)
         
-        # Status info (right of sprite)
-        x_info = 40
-        y_info = 25
+        # Raspberry Pi logo (simplified - just text)
+        draw.text((50, y_top), "RPi", font=font_small, fill=fg_color)
         
-        status_text = "IDLE"
-        if attacking:
-            status_text = "ATTACK!"
-        elif scan_status == "Scanning...":
-            status_text = "SCAN..."
-        elif scan_status == "Error":
-            status_text = "ERROR"
+        # Time (right)
+        current_time = datetime.now().strftime("%H:%M")
+        draw.text((epd.width - 35, y_top), current_time, font=font_small, fill=fg_color)
         
-        draw.text((x_info, y_info), status_text, font=font, fill=fg_color)
-        y_info += 15
+        # ========== TITLE SECTION ==========
+        y_title = 10
+        draw.text((5, y_title), "VAMPIGOTCHI", font=font_large, fill=fg_color)
+        # Bat icon next to title
+        draw_bat_icon(draw, 100, y_title+2, fg_color)
         
-        # Network mode
-        draw.text((x_info, y_info), f"{mode}", font=font_small, fill=fg_color)
-        y_info += 12
+        # ========== CHARACTER STATS ==========
+        y_stats = 22
+        # HUNGER with coffin icon
+        hunger_pct = int((hunger / 1000) * 100)
+        draw_coffin_icon(draw, 5, y_stats, fg_color)
+        draw.text((15, y_stats), f"HUNGER: [{hunger_pct}%]/1000", font=font_small, fill=fg_color)
         
-        # IP address
-        ip_short = ip[:12] if len(ip) > 12 else ip
-        draw.text((x_info, y_info), ip_short, font=font_small, fill=fg_color)
+        y_stats += 10
+        # BLOOD with potion icon
+        draw_potion_icon(draw, 5, y_stats, fg_color)
+        draw.text((15, y_stats), f"BLOOD: [{blood}%]", font=font_small, fill=fg_color)
         
-        # Statistics
-        y_stats = 60
-        draw.text((5, y_stats), f"Targets: {len(targets)}", font=font_small, fill=fg_color)
-        y_stats += 12
-        draw.text((5, y_stats), f"Scans: {total_scans}", font=font_small, fill=fg_color)
-        y_stats += 12
-        draw.text((5, y_stats), f"Attacks: {total_attacks}", font=font_small, fill=fg_color)
+        y_stats += 10
+        # LEVEL and EXP
+        draw.text((5, y_stats), f"LEVEL: {level} / EXP: {exp}/{exp_to_next}", font=font_small, fill=fg_color)
         
-        # Target info (if selected or attacking)
-        y_target = 100
-        if attacking and selected_target:
-            target_info = targets_info.get(selected_target, {})
-            target_name = target_info.get('name', 'Unknown')[:15]
-            draw.text((5, y_target), f">> {target_name}", font=font_small, fill=fg_color)
-            y_target += 12
-            mac_short = selected_target[:17] if len(selected_target) > 17 else selected_target
-            draw.text((5, y_target), mac_short, font=font_small, fill=fg_color)
-        elif selected_target:
-            target_info = targets_info.get(selected_target, {})
-            target_name = target_info.get('name', 'Unknown')[:15]
-            draw.text((5, y_target), f"Sel: {target_name}", font=font_small, fill=fg_color)
-            y_target += 12
-            rssi = target_info.get('rssi', 0)
-            if rssi != 0:
-                draw.text((5, y_target), f"RSSI: {rssi} dBm", font=font_small, fill=fg_color)
+        # ========== STATUS/ACTIVITY LOG ==========
+        y_status = 48
+        coffin_text = "SLEEPING" if coffin_status == "SLEEPING" else "AWAKE"
+        draw.text((5, y_status), f"COFFIN: {coffin_text}", font=font_small, fill=fg_color)
         
-        # Footer
-        y_footer = 115
-        uptime = get_uptime_str()
-        draw.line([(0, y_footer-2), (epd.width, y_footer-2)], fill=fg_color)
-        draw.text((5, y_footer), f"Uptime: {uptime}", font=font_small, fill=fg_color)
+        y_status += 9
+        # Activity messages (max 2 to fit)
+        for i, msg in enumerate(activity_messages[-2:]):
+            if y_status + i*8 < 70:  # Make sure it fits
+                draw.text((5, y_status + i*8), msg, font=font_small, fill=fg_color)
+        
+        # ========== ACTION BAR (icons) - simplified ==========
+        y_actions = 68
+        icon_spacing = 20
+        # Garlic icon (simplified - circle)
+        draw.ellipse([5, y_actions, 5+6, y_actions+6], outline=fg_color, width=1)
+        # Hammer icon (simplified)
+        draw.rectangle([5+icon_spacing, y_actions+1, 5+icon_spacing+4, y_actions+5], fill=fg_color)
+        draw.rectangle([5+icon_spacing+4, y_actions, 5+icon_spacing+7, y_actions+2], fill=fg_color)
+        # Diamond "Blep"
+        draw.polygon([(5+icon_spacing*2+3, y_actions), (5+icon_spacing*2+6, y_actions+3), 
+                     (5+icon_spacing*2+3, y_actions+6), (5+icon_spacing*2, y_actions+3)], fill=fg_color)
+        # Moon "Step"
+        draw.arc([5+icon_spacing*3, y_actions, 5+icon_spacing*3+6, y_actions+6], start=45, end=225, fill=fg_color, width=1)
+        # Scroll icon
+        draw.rectangle([5+icon_spacing*4, y_actions, 5+icon_spacing*4+5, y_actions+6], outline=fg_color, width=1)
+        draw.line([5+icon_spacing*4+1, y_actions+1, 5+icon_spacing*4+4, y_actions+1], fill=fg_color)
+        draw.line([5+icon_spacing*4+1, y_actions+3, 5+icon_spacing*4+4, y_actions+3], fill=fg_color)
+        
+        # ========== MAIN CHARACTER AND FINANCIALS ==========
+        # Money and Player Level (left side)
+        y_char = 78
+        draw.text((5, y_char), f"${money}", font=font, fill=fg_color)
+        draw.text((5, y_char+10), f"LVL", font=font_small, fill=fg_color)
+        draw.text((5, y_char+18), f"{player_level}", font=font, fill=fg_color)
+        
+        # Vampire character (center-right)
+        char_x = 50
+        char_y = 75
+        draw_vampire_chibi(draw, char_x, char_y, mood, fg_color)
         
         # Display update optimization
         display_update_count += 1
@@ -632,10 +754,32 @@ def run_display_loop():
     time.sleep(2)
     
     last_activity = datetime.now()
+    last_auto_message = datetime.now()
     
     while True:
         # Update mood to "bored" if no activity for 30 seconds
-        global mood
+        global mood, hunger, activity_messages
+        import random
+        
+        # Auto-decrease hunger over time
+        if (datetime.now() - last_activity).total_seconds() > 60:
+            hunger = max(0, hunger - 1)
+            last_activity = datetime.now()
+        
+        # Add automatic activity messages
+        if (datetime.now() - last_auto_message).total_seconds() > 120:  # Every 2 minutes
+            messages = [
+                "> Slept well in.",
+                "> Learned new trick!",
+                "> Feeling spooky!",
+                "> Ready to hunt!",
+                "> Resting in coffin."
+            ]
+            activity_messages.append(random.choice(messages))
+            if len(activity_messages) > 5:
+                activity_messages = activity_messages[-5:]
+            last_auto_message = datetime.now()
+        
         if not attacking and scan_status != "Scanning...":
             time_since_activity = (datetime.now() - last_activity).total_seconds()
             if time_since_activity > 30 and mood not in ["sad", "angry"]:
@@ -898,11 +1042,28 @@ def stop():
 
 # ================= MAIN =================
 
+def run_auto_scan():
+    """Run automatic scans if configured"""
+    while True:
+        scan_interval = config.get("scan_interval", 60)
+        if scan_interval > 0 and not attacking and scan_status != "Scanning...":
+            logger.info(f"Running automatic scan (interval: {scan_interval}s)")
+            run_bleeding_scan()
+        time.sleep(scan_interval)
+
 if __name__ == '__main__':
     # Start display in background thread
     display_thread = threading.Thread(target=run_display_loop)
     display_thread.daemon = True
     display_thread.start()
+    
+    # Start auto-scan if configured
+    scan_interval = config.get("scan_interval", 0)
+    if scan_interval > 0:
+        logger.info(f"Auto-scan enabled: interval={scan_interval}s")
+        auto_scan_thread = threading.Thread(target=run_auto_scan)
+        auto_scan_thread.daemon = True
+        auto_scan_thread.start()
     
     # Wait for display to initialize
     time.sleep(3)
