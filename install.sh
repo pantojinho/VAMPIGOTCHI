@@ -60,64 +60,73 @@ if [ -f /var/lib/dpkg/triggers/File ]; then
 fi
 
 # Check and fix dpkg status file if corrupted
+# This is a known issue on fresh Pi installations where the status file gets corrupted
 if [ -f /var/lib/dpkg/status ]; then
     # #region agent log
     STATUS_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
     echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"D\",\"location\":\"install.sh:62\",\"message\":\"Checking dpkg status file\",\"data\":{\"statusFileSize\":$STATUS_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
-    # Check if status file is empty or too small (should be at least a few KB)
-    if [ ! -s /var/lib/dpkg/status ] || [ "$STATUS_SIZE" -lt 1000 ]; then
-        echo -e "${YELLOW}  dpkg status file appears empty or corrupted, attempting to fix...${NC}"
+    # Always check if status-old exists and use it if current file has issues
+    if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
+        OLD_SIZE=$(stat -c%s /var/lib/dpkg/status-old 2>/dev/null || echo 0)
+        CURRENT_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
+        
         # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E1\",\"location\":\"install.sh:68\",\"message\":\"Status file empty or too small\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E1\",\"location\":\"install.sh:70\",\"message\":\"Comparing status files\",\"data\":{\"currentSize\":$CURRENT_SIZE,\"oldSize\":$OLD_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
         # #endregion agent log
         
-        # Backup and try to recover from available sources
-        BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
-        cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+        # Check for common corruption signs
+        PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
+        OLD_PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status-old 2>/dev/null || echo 0)
+        NEEDS_RECOVERY=false
         
-        # Try to recover from status-old if available
-        if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
-            echo -e "${YELLOW}  Attempting to recover from status-old...${NC}"
+        # Check if file is empty or too small
+        if [ ! -s /var/lib/dpkg/status ] || [ "$STATUS_SIZE" -lt 1000 ]; then
+            NEEDS_RECOVERY=true
+        # Check if no Package: entries found
+        elif [ "$PACKAGE_COUNT" -eq 0 ]; then
+            NEEDS_RECOVERY=true
+        # Check if file size is suspiciously different (current much smaller than old)
+        elif [ "$CURRENT_SIZE" -lt 1000 ] && [ "$OLD_SIZE" -gt 1000 ]; then
+            NEEDS_RECOVERY=true
+        # Check if old file has more packages (indicates current file lost data)
+        elif [ "$OLD_PACKAGE_COUNT" -gt "$PACKAGE_COUNT" ] && [ "$PACKAGE_COUNT" -gt 0 ]; then
+            # If old has significantly more packages, current might be corrupted
+            if [ $((OLD_PACKAGE_COUNT - PACKAGE_COUNT)) -gt 10 ]; then
+                NEEDS_RECOVERY=true
+            fi
+        fi
+        
+        # Additional check: look for sections without Package: header (the specific error we're seeing)
+        # Count empty lines followed by non-Package lines (invalid sections)
+        INVALID_SECTIONS=$(awk '/^$/ {empty=1; next} empty && !/^Package: / && !/^[[:space:]]/ && length($0) > 0 {count++} {empty=0} END {print count+0}' /var/lib/dpkg/status 2>/dev/null || echo 0)
+        if [ "$INVALID_SECTIONS" -gt 0 ]; then
+            NEEDS_RECOVERY=true
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E3\",\"location\":\"install.sh:105\",\"message\":\"Found sections without Package header\",\"data\":{\"invalidSections\":$INVALID_SECTIONS},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+        fi
+        
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E2\",\"location\":\"install.sh:90\",\"message\":\"Status file validation\",\"data\":{\"packageCount\":$PACKAGE_COUNT,\"oldPackageCount\":$OLD_PACKAGE_COUNT,\"needsRecovery\":$NEEDS_RECOVERY},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        if [ "$NEEDS_RECOVERY" = true ]; then
+            echo -e "${YELLOW}  dpkg status file appears corrupted, recovering from backup...${NC}"
+            BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+            cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
             cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+            echo -e "${GREEN}  ✓ Status file recovered from backup${NC}"
         fi
-    else
-        # Check for syntax errors: validate that the status file is properly formatted
-        # Try to validate by checking if dpkg can read it (but don't let it hang)
-        # Since validation is complex, we'll be proactive: if status-old exists and is different, use it
-        if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
-            # Compare file sizes - if they're very different, status might be corrupted
-            OLD_SIZE=$(stat -c%s /var/lib/dpkg/status-old 2>/dev/null || echo 0)
-            CURRENT_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
-            
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E2\",\"location\":\"install.sh:88\",\"message\":\"Comparing status files\",\"data\":{\"currentSize\":$CURRENT_SIZE,\"oldSize\":$OLD_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-            # #endregion agent log
-            
-            # If current file is significantly smaller or if we detect issues, use status-old
-            # Also check if current file has the "Package:" header issue
-            PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
-            
-            # Check for lines that come after empty lines but don't start with Package: (sections without Package header)
-            HAS_INVALID_SECTIONS=false
-            if awk 'BEGIN {prev_empty=0} /^$/ {prev_empty=1; next} prev_empty && !/^Package: / && !/^[[:space:]]/ && length($0) > 0 {exit 1}' /var/lib/dpkg/status 2>/dev/null; then
-                HAS_INVALID_SECTIONS=true
-            fi
-            
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E3\",\"location\":\"install.sh:100\",\"message\":\"Status file validation\",\"data\":{\"packageCount\":$PACKAGE_COUNT,\"hasInvalidSections\":$HAS_INVALID_SECTIONS},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-            # #endregion agent log
-            
-            # If we detect issues or if file is suspiciously small, recover from status-old
-            if [ "$HAS_INVALID_SECTIONS" = true ] || [ "$PACKAGE_COUNT" -eq 0 ] || ([ "$CURRENT_SIZE" -lt 1000 ] && [ "$OLD_SIZE" -gt 1000 ]); then
-                echo -e "${YELLOW}  dpkg status file appears corrupted, recovering from backup...${NC}"
-                BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
-                cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
-                cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
-                echo -e "${GREEN}  ✓ Status file recovered from backup${NC}"
-            fi
-        fi
+    elif [ ! -s /var/lib/dpkg/status ] || [ "$STATUS_SIZE" -lt 1000 ]; then
+        # If status-old doesn't exist but current file is empty/small, this is a problem
+        echo -e "${YELLOW}  dpkg status file is empty or too small, but no backup available${NC}"
+        echo -e "${YELLOW}  This may cause issues - attempting to rebuild...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E3\",\"location\":\"install.sh:100\",\"message\":\"Status file empty, no backup available\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        dpkg --clear-avail 2>/dev/null || true
     fi
 fi
 
@@ -140,7 +149,7 @@ apt-get update -qq 2>&1 | tee /tmp/apt_update_error.log || {
     # #endregion agent log
     
     # Check if error is related to dpkg status file
-    if echo "$ERROR_MSG" | grep -qiE "Problem with MergeList.*status|Encountered a section with no Package|dpkg.*status.*could not be parsed"; then
+    if echo "$ERROR_MSG" | grep -qiE "Problem with MergeList.*status|Encountered a section with no Package|dpkg.*status.*could not be parsed|section with no Package: header"; then
         echo -e "${YELLOW}  Detected dpkg status file error, attempting to fix...${NC}"
         # #region agent log
         echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"H\",\"location\":\"install.sh:120\",\"message\":\"Fixing status file after apt-get error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
