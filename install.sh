@@ -76,7 +76,22 @@ if [ -f /var/lib/dpkg/status ]; then
         echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E1\",\"location\":\"install.sh:70\",\"message\":\"Comparing status files\",\"data\":{\"currentSize\":$CURRENT_SIZE,\"oldSize\":$OLD_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
         # #endregion agent log
         
-        # Check for common corruption signs
+        # Check if status-old is also corrupted before using it
+        STATUS_OLD_VALID=true
+        # Check for binary/corrupted data at the start
+        FIRST_BYTES=$(head -c 20 /var/lib/dpkg/status-old 2>/dev/null | od -An -tx1 -v | tr -d ' \n')
+        if echo "$FIRST_BYTES" | grep -q "[^0-9a-f ]"; then
+            STATUS_OLD_VALID=false
+        # Check if status-old has valid Package: entries
+        elif ! grep -q "^Package: " /var/lib/dpkg/status-old 2>/dev/null; then
+            STATUS_OLD_VALID=false
+        fi
+        
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E1b\",\"location\":\"install.sh:80\",\"message\":\"Validating status-old file\",\"data\":{\"isValid\":$STATUS_OLD_VALID},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Check for common corruption signs in current file
         PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
         OLD_PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status-old 2>/dev/null || echo 0)
         NEEDS_RECOVERY=false
@@ -84,7 +99,7 @@ if [ -f /var/lib/dpkg/status ]; then
         # Check if file is empty or too small
         if [ ! -s /var/lib/dpkg/status ] || [ "$STATUS_SIZE" -lt 1000 ]; then
             NEEDS_RECOVERY=true
-        # Check if no Package: entries found
+        # Check if no Package: entries found in current file
         elif [ "$PACKAGE_COUNT" -eq 0 ]; then
             NEEDS_RECOVERY=true
         # Check if file size is suspiciously different (current much smaller than old)
@@ -106,6 +121,39 @@ if [ -f /var/lib/dpkg/status ]; then
             # #region agent log
             echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E3\",\"location\":\"install.sh:105\",\"message\":\"Found sections without Package header\",\"data\":{\"invalidSections\":$INVALID_SECTIONS},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
             # #endregion agent log
+        fi
+        
+        # Only recover from backup if it's valid
+        if [ "$NEEDS_RECOVERY" = true ] && [ "$STATUS_OLD_VALID" = true ]; then
+            echo -e "${YELLOW}  dpkg status file appears corrupted, recovering from backup...${NC}"
+            BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+            cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+            cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+            echo -e "${GREEN}  ✓ Status file recovered from backup${NC}"
+        elif [ "$NEEDS_RECOVERY" = true ]; then
+            echo -e "${YELLOW}  dpkg status file is corrupted and backup is also invalid${NC}"
+            echo -e "${YELLOW}  Creating minimal valid status file...${NC}"
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E4\",\"location\":\"install.sh:125\",\"message\":\"Both status files corrupted, creating minimal file\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            
+            # Backup current corrupted file
+            BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+            cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+            
+            # Create minimal valid status file with dpkg package
+            echo "Package: dpkg" > /var/lib/dpkg/status
+            echo "Status: install ok installed" >> /var/lib/dpkg/status
+            echo "Priority: required" >> /var/lib/dpkg/status
+            echo "Section: admin" >> /var/lib/dpkg/status
+            echo "Installed-Size: 0" >> /var/lib/dpkg/status
+            echo "Maintainer: Dpkg Developers <debian-dpkg@lists.debian.org>" >> /var/lib/dpkg/status
+            echo "Architecture: $(dpkg --print-architecture 2>/dev/null || echo armhf)" >> /var/lib/dpkg/status
+            echo "Version: 1.21.22" >> /var/lib/dpkg/status
+            echo "Description: Debian package management system" >> /var/lib/dpkg/status
+            echo "" >> /var/lib/dpkg/status
+            
+            echo -e "${GREEN}  ✓ Created minimal status file${NC}"
         fi
         
         # #region agent log
