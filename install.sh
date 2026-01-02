@@ -48,7 +48,7 @@ if [ -f /var/lib/dpkg/triggers/File ]; then
     # #endregion agent log
 fi
 
-# Step 2: Fix status file if corrupted - be aggressive and recreate immediately
+# Step 2: Fix status file if corrupted - be very aggressive
 echo -e "${YELLOW}  Checking dpkg status file...${NC}"
 
 # Backup current status file if it exists
@@ -58,23 +58,46 @@ if [ -f /var/lib/dpkg/status ]; then
     echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C\",\"location\":\"install.sh:51\",\"message\":\"Status file found\",\"data\":{\"statusFileSize\":$STATUS_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
-    # Check if status file is valid (has "Package:" entries)
-    HAS_PACKAGE=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
-    echo -e "${YELLOW}  Found $HAS_PACKAGE Package entries in status file${NC}"
+    # Check if status file is valid by checking for binary/corrupted data
+    # Read first 100 bytes to check for invalid characters
+    FIRST_100=$(head -c 100 /var/lib/dpkg/status 2>/dev/null | od -An -tx1 -v | tr -d ' \n')
     
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C1\",\"location\":\"install.sh:56\",\"message\":\"Package entries count\",\"data\":{\"count\":$HAS_PACKAGE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-    # #endregion agent log
+    # Check if contains non-ASCII/non-hex values (indicates corruption)
+    # Valid hex values are 00-7f (ASCII) and occasional higher values
+    # If we see patterns like qV# or non-printable characters, it's corrupted
+    IS_CORRUPTED=false
     
-    # If no valid Package: entries or file is too small, fix it IMMEDIATELY
-    if [ "$HAS_PACKAGE" -eq 0 ] || [ ! -s /var/lib/dpkg/status ] || [ "$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)" -lt 500 ]; then
-        echo -e "${YELLOW}  Status file appears corrupted, RECREATING...${NC}"
+    if echo "$FIRST_100" | grep -qiE "[a-f]{4}|qV#"; then
+        IS_CORRUPTED=true
         # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:66\",\"message\":\"Recreating status file\",\"data\":{\"reason\":\"noPackageEntries\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C1\",\"location\":\"install.sh:65\",\"message\":\"Binary corruption detected in status file\",\"data\":{\"hexPreview\":\"$(echo "$FIRST_100" | head -c 50)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
         # #endregion agent log
-        
-        # Backup current corrupted file
+    elif ! grep -q "^Package: " /var/lib/dpkg/status 2>/dev/null; then
+        # No valid Package entries at start of file
+        IS_CORRUPTED=true
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C2\",\"location\":\"install.sh:70\",\"message\":\"No Package entries at start\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+    else
+        # Check first line - should start with "Package:"
+        FIRST_LINE=$(head -n 1 /var/lib/dpkg/status 2>/dev/null)
+        if ! echo "$FIRST_LINE" | grep -q "^Package: "; then
+            IS_CORRUPTED=true
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C3\",\"location\":\"install.sh:75\",\"message\":\"First line doesn't start with Package\",\"data\":{\"firstLine\":\"$(echo "$FIRST_LINE" | head -c 50)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+        fi
+    fi
+    
+    # If corrupted, completely recreate the file
+    if [ "$IS_CORRUPTED" = true ]; then
+        echo -e "${YELLOW}  Status file is corrupted, COMPLETELY RECREATING...${NC}"
+        # Backup corrupted file
         cp /var/lib/dpkg/status /var/lib/dpkg/status.backup.$(date +%s) 2>/dev/null || true
+        
+        # Completely remove corrupted file
+        rm -f /var/lib/dpkg/status
+        rm -f /var/lib/dpkg/status-old 2>/dev/null || true
         
         # Get architecture
         ARCH=$(dpkg --print-architecture 2>/dev/null || echo armhf)
@@ -92,13 +115,18 @@ Description: Debian package management system
 STATUS_EOF
         
         chmod 644 /var/lib/dpkg/status
-        echo -e "${GREEN}  ✓ Status file recreated${NC}"
+        echo -e "${GREEN}  ✓ Status file completely recreated${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:90\",\"message\":\"Status file recreated\",\"data\":{\"arch\":\"$ARCH\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+    else
+        echo -e "${GREEN}  ✓ Status file appears valid${NC}"
     fi
 else
     # If status file doesn't exist, create minimal one
     echo -e "${YELLOW}  Status file missing, creating...${NC}"
     # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:66\",\"message\":\"Creating status file\",\"data\":{\"reason\":\"fileMissing\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C\",\"location\":\"install.sh:95\",\"message\":\"Status file missing\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
     # Get architecture
