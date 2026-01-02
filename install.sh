@@ -35,68 +35,28 @@ echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\"
 # #endregion agent log
 
 # Proactively fix the triggers file if it exists (common issue on fresh Pi installations)
+# This is a known issue where the triggers file gets corrupted with syntax errors
 if [ -f /var/lib/dpkg/triggers/File ]; then
     # #region agent log
     FILE_SIZE=$(stat -c%s /var/lib/dpkg/triggers/File 2>/dev/null || echo 0)
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"B\",\"location\":\"install.sh:38\",\"message\":\"Triggers file exists\",\"data\":{\"fileSize\":$FILE_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"B\",\"location\":\"install.sh:38\",\"message\":\"Triggers file exists, backing up and recreating\",\"data\":{\"fileSize\":$FILE_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
-    # Always validate the triggers file by trying to use dpkg-trigger or checking syntax
-    # If validation fails, recreate the file
-    TRIGGERS_VALID=true
+    echo -e "${YELLOW}  Fixing dpkg triggers file (common issue on Pi)...${NC}"
+    # Backup original file
+    BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
+    cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
     
-    # Check if file is empty
-    if [ ! -s /var/lib/dpkg/triggers/File ] || [ "$FILE_SIZE" -eq 0 ]; then
-        TRIGGERS_VALID=false
-        echo -e "${YELLOW}  Empty triggers file detected...${NC}"
-    else
-        # Try to validate by checking if dpkg can process it
-        # Use a simple test: try to read the file structure
-        # Check for common syntax errors: empty lines at start, invalid characters, etc.
-        FIRST_CHAR=$(head -c 1 /var/lib/dpkg/triggers/File 2>/dev/null || echo "")
-        if [ -z "$FIRST_CHAR" ]; then
-            TRIGGERS_VALID=false
-        else
-            # Try a safer validation: check if file has only printable characters or newlines
-            # If file contains null bytes or other problematic characters, it's likely corrupted
-            if file /var/lib/dpkg/triggers/File 2>/dev/null | grep -qi "binary\|data"; then
-                TRIGGERS_VALID=false
-                echo -e "${YELLOW}  Binary data detected in triggers file...${NC}"
-            fi
-        fi
-        
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"C\",\"location\":\"install.sh:55\",\"message\":\"Triggers file validation\",\"data\":{\"isValid\":$TRIGGERS_VALID,\"firstChar\":\"$FIRST_CHAR\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-        # #endregion agent log
-    fi
+    # Remove corrupted file - dpkg will recreate it with correct syntax when needed
+    rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
+    touch /var/lib/dpkg/triggers/File 2>/dev/null || true
+    chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
     
-    # If validation failed or we want to be safe, recreate the file
-    # Since syntax errors are common, we'll proactively fix it
-    if [ "$TRIGGERS_VALID" = false ]; then
-        echo -e "${YELLOW}  Corrupted triggers file detected, fixing...${NC}"
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"D\",\"location\":\"install.sh:65\",\"message\":\"Fixing corrupted triggers file\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-        # #endregion agent log
-        BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
-        cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
-        rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
-        touch /var/lib/dpkg/triggers/File 2>/dev/null || true
-        chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
-        echo -e "${GREEN}  ✓ Triggers file recreated${NC}"
-    else
-        # Even if file seems valid, proactively fix it if it's known to cause issues
-        # Many Pi installations have this problem, so we'll be proactive
-        echo -e "${YELLOW}  Proactively fixing triggers file to prevent errors...${NC}"
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E\",\"location\":\"install.sh:78\",\"message\":\"Proactively fixing triggers file\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-        # #endregion agent log
-        BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
-        cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
-        rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
-        touch /var/lib/dpkg/triggers/File 2>/dev/null || true
-        chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
-        echo -e "${GREEN}  ✓ Triggers file recreated${NC}"
-    fi
+    # #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"C\",\"location\":\"install.sh:50\",\"message\":\"Triggers file recreated\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    echo -e "${GREEN}  ✓ Triggers file recreated${NC}"
 fi
 
 # Try to fix any broken dpkg packages (non-blocking)
@@ -114,26 +74,44 @@ apt-get update -qq 2>&1 | tee /tmp/apt_update_error.log || {
     # #region agent log
     EXIT_CODE=$?
     ERROR_MSG=$(cat /tmp/apt_update_error.log 2>/dev/null || echo "Unknown error")
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"D\",\"location\":\"install.sh:73\",\"message\":\"apt-get update failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"error\":\"$ERROR_MSG\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"D\",\"location\":\"install.sh:73\",\"message\":\"apt-get update failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"errorPreview\":\"$(echo "$ERROR_MSG" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
-    # Check if error is related to dpkg triggers file
-    if echo "$ERROR_MSG" | grep -qi "syntax error.*triggers.*File" || echo "$ERROR_MSG" | grep -qi "dpkg.*error.*triggers"; then
+    # Check if error is related to dpkg triggers file (multiple possible error messages)
+    if echo "$ERROR_MSG" | grep -qiE "syntax error.*triggers.*File|dpkg.*error.*triggers|error.*triggers file"; then
         echo -e "${YELLOW}  Detected dpkg triggers file error, attempting to fix...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"E\",\"location\":\"install.sh:80\",\"message\":\"Fixing triggers file after apt-get error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Always recreate the triggers file
+        BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
         if [ -f /var/lib/dpkg/triggers/File ]; then
-            BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
             cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
-            rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
-            touch /var/lib/dpkg/triggers/File 2>/dev/null || true
-            chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
-            dpkg --configure -a 2>/dev/null || true
-            echo -e "${GREEN}  ✓ Fixed, retrying apt-get update...${NC}"
-            apt-get update -qq || exit $?
-        else
-            echo -e "${RED}  Could not fix dpkg triggers file error${NC}"
-            exit $EXIT_CODE
         fi
+        rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
+        touch /var/lib/dpkg/triggers/File 2>/dev/null || true
+        chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
+        
+        # Try to fix dpkg state
+        dpkg --configure -a 2>/dev/null || true
+        
+        echo -e "${GREEN}  ✓ Fixed, retrying apt-get update...${NC}"
+        
+        # Retry apt-get update
+        apt-get update -qq 2>&1 | tee /tmp/apt_update_error2.log || {
+            RETRY_EXIT=$?
+            RETRY_ERROR=$(cat /tmp/apt_update_error2.log 2>/dev/null || echo "Unknown error")
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"F\",\"location\":\"install.sh:95\",\"message\":\"apt-get update failed after fix attempt\",\"data\":{\"exitCode\":$RETRY_EXIT,\"errorPreview\":\"$(echo "$RETRY_ERROR" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            echo -e "${RED}  apt-get update still failing after fix attempt${NC}"
+            exit $RETRY_EXIT
+        }
     else
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"G\",\"location\":\"install.sh:100\",\"message\":\"apt-get update failed with non-triggers error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
         exit $EXIT_CODE
     fi
 }
