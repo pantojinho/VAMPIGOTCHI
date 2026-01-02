@@ -48,19 +48,32 @@ if [ -f /var/lib/dpkg/triggers/File ]; then
     # #endregion agent log
 fi
 
-# Step 2: Fix status file if corrupted
+# Step 2: Fix status file if corrupted - be aggressive and recreate immediately
+echo -e "${YELLOW}  Checking dpkg status file...${NC}"
+
+# Backup current status file if it exists
 if [ -f /var/lib/dpkg/status ]; then
-    # Check if status file is valid (has "Package:" entries)
-    HAS_PACKAGE=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
-    
     # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C\",\"location\":\"install.sh:56\",\"message\":\"Checking status file\",\"data\":{\"packageCount\":$HAS_PACKAGE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    STATUS_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C\",\"location\":\"install.sh:51\",\"message\":\"Status file found\",\"data\":{\"statusFileSize\":$STATUS_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
-    # If no valid Package: entries or file is too small, fix it
+    # Check if status file is valid (has "Package:" entries)
+    HAS_PACKAGE=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
+    echo -e "${YELLOW}  Found $HAS_PACKAGE Package entries in status file${NC}"
+    
+    # #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"C1\",\"location\":\"install.sh:56\",\"message\":\"Package entries count\",\"data\":{\"count\":$HAS_PACKAGE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    # If no valid Package: entries or file is too small, fix it IMMEDIATELY
     if [ "$HAS_PACKAGE" -eq 0 ] || [ ! -s /var/lib/dpkg/status ] || [ "$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)" -lt 500 ]; then
-        echo -e "${YELLOW}  Status file appears corrupted, fixing...${NC}"
-        # Backup and create minimal valid file
+        echo -e "${YELLOW}  Status file appears corrupted, RECREATING...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:66\",\"message\":\"Recreating status file\",\"data\":{\"reason\":\"noPackageEntries\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Backup current corrupted file
         cp /var/lib/dpkg/status /var/lib/dpkg/status.backup.$(date +%s) 2>/dev/null || true
         
         # Get architecture
@@ -80,10 +93,31 @@ STATUS_EOF
         
         chmod 644 /var/lib/dpkg/status
         echo -e "${GREEN}  ✓ Status file recreated${NC}"
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:75\",\"message\":\"Status file recreated\",\"data\":{\"arch\":\"$ARCH\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
-        # #endregion agent log
     fi
+else
+    # If status file doesn't exist, create minimal one
+    echo -e "${YELLOW}  Status file missing, creating...${NC}"
+    # #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-fix\",\"hypothesisId\":\"D\",\"location\":\"install.sh:66\",\"message\":\"Creating status file\",\"data\":{\"reason\":\"fileMissing\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    # Get architecture
+    ARCH=$(dpkg --print-architecture 2>/dev/null || echo armhf)
+    
+    # Create minimal valid status file
+    cat > /var/lib/dpkg/status << STATUS_EOF
+Package: dpkg
+Status: install ok installed
+Priority: required
+Section: admin
+Architecture: $ARCH
+Version: $(dpkg -l dpkg 2>/dev/null | grep dpkg | awk '{print $3}')
+Description: Debian package management system
+
+STATUS_EOF
+    
+    chmod 644 /var/lib/dpkg/status
+    echo -e "${GREEN}  ✓ Status file created${NC}"
 fi
 
 # Step 3: Remove corrupted package list files
