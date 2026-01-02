@@ -134,6 +134,10 @@ fi
 echo -e "${YELLOW}  Verifying dpkg packages...${NC}"
 dpkg --configure -a 2>/dev/null || true
 
+# Clean up any corrupted package files lists
+# Note: We'll handle this reactively when the error occurs, as proactive detection
+# can be too aggressive and remove valid files
+
 # #region agent log
 echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"F\",\"location\":\"install.sh:95\",\"message\":\"dpkg check completed, proceeding to apt-get\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
 # #endregion agent log
@@ -148,8 +152,71 @@ apt-get update -qq 2>&1 | tee /tmp/apt_update_error.log || {
     echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"D\",\"location\":\"install.sh:73\",\"message\":\"apt-get update failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"errorPreview\":\"$(echo "$ERROR_MSG" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
+    # Check if error is related to corrupted package files list
+    if echo "$ERROR_MSG" | grep -qiE "files list file.*contains empty filename|unrecoverable fatal error"; then
+        echo -e "${YELLOW}  Detected corrupted package files list, attempting to fix...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"K\",\"location\":\"install.sh:152\",\"message\":\"Fixing corrupted package files list\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Extract package name from error message
+        # Error format: "files list file for package 'package-name:arch' contains empty filename"
+        PACKAGE_NAME=$(echo "$ERROR_MSG" | grep -oE "package '[^']+'" | sed "s/package '//; s/'//" | head -n 1)
+        
+        # If extraction failed, try alternative pattern
+        if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME=$(echo "$ERROR_MSG" | grep -oE "for package [^ ]+" | sed "s/for package //" | head -n 1)
+        fi
+        
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"L\",\"location\":\"install.sh:158\",\"message\":\"Corrupted package detected\",\"data\":{\"packageName\":\"$PACKAGE_NAME\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        if [ -n "$PACKAGE_NAME" ]; then
+            echo -e "${YELLOW}  Removing corrupted package files for: $PACKAGE_NAME${NC}"
+            # Extract base package name (remove architecture suffix like :armhf)
+            BASE_PACKAGE=$(echo "$PACKAGE_NAME" | cut -d: -f1)
+            
+            # Remove corrupted package files (try both with and without architecture)
+            rm -f /var/lib/dpkg/info/${PACKAGE_NAME}.* 2>/dev/null || true
+            rm -f /var/lib/dpkg/info/${BASE_PACKAGE}.* 2>/dev/null || true
+            
+            # Remove package from status if it exists
+            if [ -f /var/lib/dpkg/status ]; then
+                # Remove package entry from status file (match both with and without architecture)
+                awk -v pkg="$PACKAGE_NAME" -v base="$BASE_PACKAGE" '
+                    /^Package: / {
+                        pkg_name = $2
+                        in_pkg = (pkg_name == pkg || pkg_name == base)
+                    }
+                    !in_pkg {print}
+                    /^$/ && in_pkg {in_pkg = 0}
+                ' /var/lib/dpkg/status > /var/lib/dpkg/status.tmp 2>/dev/null && mv /var/lib/dpkg/status.tmp /var/lib/dpkg/status || true
+            fi
+            echo -e "${GREEN}  ✓ Removed corrupted package files${NC}"
+        else
+            echo -e "${YELLOW}  Could not extract package name from error, attempting general cleanup...${NC}"
+            # If we can't identify the specific package, try to fix dpkg state
+            dpkg --configure -a 2>/dev/null || true
+        fi
+        
+        # Try to fix dpkg state
+        dpkg --configure -a 2>/dev/null || true
+        
+        echo -e "${GREEN}  ✓ Fixed, retrying apt-get update...${NC}"
+        
+        # Retry apt-get update
+        apt-get update -qq 2>&1 | tee /tmp/apt_update_error2.log || {
+            RETRY_EXIT=$?
+            RETRY_ERROR=$(cat /tmp/apt_update_error2.log 2>/dev/null || echo "Unknown error")
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"M\",\"location\":\"install.sh:175\",\"message\":\"apt-get update failed after package files fix\",\"data\":{\"exitCode\":$RETRY_EXIT,\"errorPreview\":\"$(echo "$RETRY_ERROR" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            echo -e "${RED}  apt-get update still failing after fix attempt${NC}"
+            exit $RETRY_EXIT
+        }
     # Check if error is related to dpkg status file
-    if echo "$ERROR_MSG" | grep -qiE "Problem with MergeList.*status|Encountered a section with no Package|dpkg.*status.*could not be parsed|section with no Package: header"; then
+    elif echo "$ERROR_MSG" | grep -qiE "Problem with MergeList.*status|Encountered a section with no Package|dpkg.*status.*could not be parsed|section with no Package: header"; then
         echo -e "${YELLOW}  Detected dpkg status file error, attempting to fix...${NC}"
         # #region agent log
         echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"H\",\"location\":\"install.sh:120\",\"message\":\"Fixing status file after apt-get error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
