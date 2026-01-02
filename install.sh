@@ -83,22 +83,39 @@ if [ -f /var/lib/dpkg/status ]; then
             cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
         fi
     else
-        # Check for syntax errors: look for sections without Package: header
-        # A valid status file should have "Package: " at the start of each package entry
-        if ! grep -q "^Package: " /var/lib/dpkg/status 2>/dev/null || [ $(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0) -eq 0 ]; then
-            echo -e "${YELLOW}  dpkg status file has syntax errors, attempting to fix...${NC}"
+        # Check for syntax errors: validate that the status file is properly formatted
+        # Try to validate by checking if dpkg can read it (but don't let it hang)
+        # Since validation is complex, we'll be proactive: if status-old exists and is different, use it
+        if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
+            # Compare file sizes - if they're very different, status might be corrupted
+            OLD_SIZE=$(stat -c%s /var/lib/dpkg/status-old 2>/dev/null || echo 0)
+            CURRENT_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
+            
             # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E2\",\"location\":\"install.sh:80\",\"message\":\"Status file has syntax errors\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E2\",\"location\":\"install.sh:88\",\"message\":\"Comparing status files\",\"data\":{\"currentSize\":$CURRENT_SIZE,\"oldSize\":$OLD_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
             # #endregion agent log
             
-            # Backup and try to recover
-            BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
-            cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+            # If current file is significantly smaller or if we detect issues, use status-old
+            # Also check if current file has the "Package:" header issue
+            PACKAGE_COUNT=$(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0)
             
-            # Try to recover from status-old if available
-            if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
-                echo -e "${YELLOW}  Attempting to recover from status-old...${NC}"
+            # Check for lines that come after empty lines but don't start with Package: (sections without Package header)
+            HAS_INVALID_SECTIONS=false
+            if awk 'BEGIN {prev_empty=0} /^$/ {prev_empty=1; next} prev_empty && !/^Package: / && !/^[[:space:]]/ && length($0) > 0 {exit 1}' /var/lib/dpkg/status 2>/dev/null; then
+                HAS_INVALID_SECTIONS=true
+            fi
+            
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E3\",\"location\":\"install.sh:100\",\"message\":\"Status file validation\",\"data\":{\"packageCount\":$PACKAGE_COUNT,\"hasInvalidSections\":$HAS_INVALID_SECTIONS},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            
+            # If we detect issues or if file is suspiciously small, recover from status-old
+            if [ "$HAS_INVALID_SECTIONS" = true ] || [ "$PACKAGE_COUNT" -eq 0 ] || ([ "$CURRENT_SIZE" -lt 1000 ] && [ "$OLD_SIZE" -gt 1000 ]); then
+                echo -e "${YELLOW}  dpkg status file appears corrupted, recovering from backup...${NC}"
+                BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+                cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
                 cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+                echo -e "${GREEN}  ✓ Status file recovered from backup${NC}"
             fi
         fi
     fi
