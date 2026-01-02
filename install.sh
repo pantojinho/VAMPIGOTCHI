@@ -132,7 +132,73 @@ fi
 
 # Try to fix any broken dpkg packages (non-blocking)
 echo -e "${YELLOW}  Verifying dpkg packages...${NC}"
-dpkg --configure -a 2>/dev/null || true
+dpkg --configure -a 2>&1 | tee /tmp/dpkg_configure_error.log || {
+    # #region agent log
+    EXIT_CODE=$?
+    ERROR_MSG=$(cat /tmp/dpkg_configure_error.log 2>/dev/null || echo "Unknown error")
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"F\",\"location\":\"install.sh:135\",\"message\":\"dpkg configure failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"errorPreview\":\"$(echo "$ERROR_MSG" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    # Check if error is related to corrupted package files list
+    if echo "$ERROR_MSG" | grep -qiE "files list file.*contains empty filename|unrecoverable fatal error"; then
+        echo -e "${YELLOW}  Detected corrupted package files list during dpkg configure, attempting to fix...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"G\",\"location\":\"install.sh:145\",\"message\":\"Fixing corrupted package files list during configure\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Extract package name from error message
+        # Error format: "files list file for package 'package-name:arch' contains empty filename"
+        PACKAGE_NAME=$(echo "$ERROR_MSG" | grep -oE "package '[^']+'" | sed "s/package '//; s/'//" | head -n 1)
+        
+        # If extraction failed, try alternative pattern
+        if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME=$(echo "$ERROR_MSG" | grep -oE "for package [^ ]+" | sed "s/for package //" | head -n 1)
+        fi
+        
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"H\",\"location\":\"install.sh:158\",\"message\":\"Corrupted package detected\",\"data\":{\"packageName\":\"$PACKAGE_NAME\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        if [ -n "$PACKAGE_NAME" ]; then
+            echo -e "${YELLOW}  Removing corrupted package files for: $PACKAGE_NAME${NC}"
+            # Extract base package name (remove architecture suffix like :armhf)
+            BASE_PACKAGE=$(echo "$PACKAGE_NAME" | cut -d: -f1)
+            
+            # Remove corrupted package files (try both with and without architecture)
+            rm -f /var/lib/dpkg/info/${PACKAGE_NAME}.* 2>/dev/null || true
+            rm -f /var/lib/dpkg/info/${BASE_PACKAGE}.* 2>/dev/null || true
+            
+            # Also remove the list file if it exists
+            rm -f /var/lib/dpkg/info/${PACKAGE_NAME}.list 2>/dev/null || true
+            rm -f /var/lib/dpkg/info/${BASE_PACKAGE}.list 2>/dev/null || true
+            
+            # Remove package from status if it exists
+            if [ -f /var/lib/dpkg/status ]; then
+                # Remove package entry from status file (match both with and without architecture)
+                awk -v pkg="$PACKAGE_NAME" -v base="$BASE_PACKAGE" '
+                    /^Package: / {
+                        pkg_name = $2
+                        in_pkg = (pkg_name == pkg || pkg_name == base)
+                    }
+                    !in_pkg {print}
+                    /^$/ && in_pkg {in_pkg = 0}
+                ' /var/lib/dpkg/status > /var/lib/dpkg/status.tmp 2>/dev/null && mv /var/lib/dpkg/status.tmp /var/lib/dpkg/status || true
+            fi
+            echo -e "${GREEN}  ✓ Removed corrupted package files${NC}"
+        else
+            echo -e "${YELLOW}  Could not extract package name, attempting general cleanup...${NC}"
+            # If we can't identify the specific package, try to find and fix any .list files with issues
+            find /var/lib/dpkg/info -name "*.list" -type f -exec sh -c 'if ! grep -q "^/" "$1" 2>/dev/null; then echo "$1"; fi' _ {} \; 2>/dev/null | head -5 | while read FILE; do
+                echo -e "${YELLOW}  Removing potentially corrupted list file: $FILE${NC}"
+                rm -f "$FILE" 2>/dev/null || true
+            done
+        fi
+        
+        # Retry dpkg configure after cleanup
+        echo -e "${GREEN}  ✓ Fixed, retrying dpkg configure...${NC}"
+        dpkg --configure -a 2>/dev/null || true
+    fi
+}
 
 # Clean up any corrupted package files lists
 # Note: We'll handle this reactively when the error occurs, as proactive detection
