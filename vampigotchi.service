@@ -1,0 +1,18 @@
+[Unit]
+Description=VampGotchi - Bluetooth Monitoring Device
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/VampGotchi
+ExecStart=/usr/bin/python3 /root/VampGotchi/vampgotchi.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
