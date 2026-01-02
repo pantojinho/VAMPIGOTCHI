@@ -22,8 +22,97 @@ fi
 
 # Update system packages
 echo -e "${GREEN}[1/8] Updating system packages...${NC}"
-apt-get update -qq
-apt-get upgrade -y -qq
+
+# Fix dpkg triggers file if corrupted
+echo -e "${YELLOW}  Checking dpkg state...${NC}"
+
+# Test if dpkg triggers file has syntax errors by trying to read it
+if [ -f /var/lib/dpkg/triggers/File ]; then
+    # Try to validate by running dpkg commands that read the triggers file
+    DPKG_ERROR=$(dpkg --audit 2>&1)
+    DPKG_EXIT=$?
+    
+    # Check for syntax errors in triggers file
+    if [ $DPKG_EXIT -ne 0 ] && (echo "$DPKG_ERROR" | grep -qi "syntax error.*triggers.*File" || echo "$DPKG_ERROR" | grep -qi "error.*triggers.*File"); then
+        echo -e "${YELLOW}  dpkg triggers file has syntax errors, backing up and recreating...${NC}"
+        # Backup original
+        BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
+        cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
+        
+        # Remove corrupted file - dpkg will recreate it if needed
+        rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
+        touch /var/lib/dpkg/triggers/File 2>/dev/null || true
+        chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
+        echo -e "${GREEN}  ✓ dpkg triggers file recreated${NC}"
+    fi
+fi
+
+# Try to fix dpkg state if needed
+if ! dpkg --audit >/dev/null 2>&1; then
+    echo -e "${YELLOW}  Attempting to fix dpkg state...${NC}"
+    dpkg --configure -a 2>/dev/null || true
+fi
+
+# #region agent log
+LOG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.cursor/debug.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"A\",\"location\":\"install.sh:25\",\"message\":\"Before apt-get update - checking dpkg triggers file\",\"data\":{\"triggersFile\":\"/var/lib/dpkg/triggers/File\",\"fileExists\":$([ -f /var/lib/dpkg/triggers/File ] && echo true || echo false),\"fileSize\":$(stat -c%s /var/lib/dpkg/triggers/File 2>/dev/null || echo 0),\"filePerms\":\"$(stat -c%a /var/lib/dpkg/triggers/File 2>/dev/null || echo N/A)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+# #endregion agent log
+
+# #region agent log
+echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"B\",\"location\":\"install.sh:25\",\"message\":\"Checking dpkg status\",\"data\":{\"dpkgLockExists\":$([ -f /var/lib/dpkg/lock ] && echo true || echo false),\"dpkgStatusExists\":$([ -f /var/lib/dpkg/status ] && echo true || echo false)},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+# #endregion agent log
+
+# #region agent log
+if [ -f /var/lib/dpkg/triggers/File ]; then
+    FIRST_LINES=$(head -n 5 /var/lib/dpkg/triggers/File 2>/dev/null | head -c 200)
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"C\",\"location\":\"install.sh:25\",\"message\":\"First lines of triggers file\",\"data\":{\"firstLines\":\"$FIRST_LINES\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+fi
+# #endregion agent log
+
+apt-get update -qq 2>&1 | tee /tmp/apt_update_error.log || {
+    # #region agent log
+    EXIT_CODE=$?
+    ERROR_MSG=$(cat /tmp/apt_update_error.log 2>/dev/null || echo "Unknown error")
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"D\",\"location\":\"install.sh:73\",\"message\":\"apt-get update failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"error\":\"$ERROR_MSG\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    # Check if error is related to dpkg triggers file
+    if echo "$ERROR_MSG" | grep -qi "syntax error.*triggers.*File" || echo "$ERROR_MSG" | grep -qi "dpkg.*error.*triggers"; then
+        echo -e "${YELLOW}  Detected dpkg triggers file error, attempting to fix...${NC}"
+        if [ -f /var/lib/dpkg/triggers/File ]; then
+            BACKUP_FILE="/var/lib/dpkg/triggers/File.backup.$(date +%s)"
+            cp /var/lib/dpkg/triggers/File "$BACKUP_FILE" 2>/dev/null || true
+            rm -f /var/lib/dpkg/triggers/File 2>/dev/null || true
+            touch /var/lib/dpkg/triggers/File 2>/dev/null || true
+            chmod 644 /var/lib/dpkg/triggers/File 2>/dev/null || true
+            dpkg --configure -a 2>/dev/null || true
+            echo -e "${GREEN}  ✓ Fixed, retrying apt-get update...${NC}"
+            apt-get update -qq || exit $?
+        else
+            echo -e "${RED}  Could not fix dpkg triggers file error${NC}"
+            exit $EXIT_CODE
+        fi
+    else
+        exit $EXIT_CODE
+    fi
+}
+
+# #region agent log
+echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"E\",\"location\":\"install.sh:26\",\"message\":\"apt-get update succeeded, before upgrade\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+# #endregion agent log
+
+apt-get upgrade -y -qq || {
+    # #region agent log
+    EXIT_CODE=$?
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"F\",\"location\":\"install.sh:26\",\"message\":\"apt-get upgrade failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"error\":\"apt-get upgrade failed with code $EXIT_CODE\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    exit $EXIT_CODE
+}
+
+# #region agent log
+echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"G\",\"location\":\"install.sh:26\",\"message\":\"apt-get upgrade succeeded\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+# #endregion agent log
 
 # Install system dependencies
 echo -e "${GREEN}[2/8] Installing system dependencies...${NC}"
