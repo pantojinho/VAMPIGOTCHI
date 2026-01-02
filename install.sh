@@ -197,13 +197,22 @@ echo -e "${GREEN}✓ Bluetooth configured${NC}"
 
 # Install systemd service (optional)
 echo -e "${GREEN}[8/8] Setting up systemd service...${NC}"
-if [ -f "$SCRIPT_DIR/vampgotchi.service" ]; then
-    SERVICE_FILE="/etc/systemd/system/vampgotchi.service"
-    cp "$SCRIPT_DIR/vampgotchi.service" "$SERVICE_FILE"
+# Try both possible names (vampigotchi.service and vampgotchi.service)
+SERVICE_SOURCE=""
+if [ -f "$SCRIPT_DIR/vampigotchi.service" ]; then
+    SERVICE_SOURCE="$SCRIPT_DIR/vampigotchi.service"
+elif [ -f "$SCRIPT_DIR/vampgotchi.service" ]; then
+    SERVICE_SOURCE="$SCRIPT_DIR/vampgotchi.service"
+fi
+
+if [ -n "$SERVICE_SOURCE" ]; then
+    SERVICE_FILE="/etc/systemd/system/vampigotchi.service"
+    # Update the service file with correct paths before copying
+    sed "s|/root/VampGotchi|$SCRIPT_DIR|g; s|vampgotchi\.py|vampigotchi.py|g" "$SERVICE_SOURCE" > "$SERVICE_FILE" 2>/dev/null || cp "$SERVICE_SOURCE" "$SERVICE_FILE"
     systemctl daemon-reload > /dev/null 2>&1
     echo -e "${GREEN}✓ Systemd service installed${NC}"
-    echo -e "${YELLOW}  To enable auto-start: sudo systemctl enable vampgotchi${NC}"
-    echo -e "${YELLOW}  To start service: sudo systemctl start vampgotchi${NC}"
+    echo -e "${YELLOW}  To enable auto-start: sudo systemctl enable vampigotchi${NC}"
+    echo -e "${YELLOW}  To start service: sudo systemctl start vampigotchi${NC}"
 else
     echo -e "${YELLOW}Systemd service file not found, skipping...${NC}"
 fi
@@ -214,8 +223,8 @@ echo -e "${GREEN}=================================="
 echo -e "Installation completed successfully!${NC}"
 echo ""
 echo "Next steps:"
-echo "1. Run: sudo python3 vampgotchi.py"
-echo "2. Or enable service: sudo systemctl enable --now vampgotchi"
+echo "1. Run: sudo python3 vampigotchi.py"
+echo "2. Or enable service: sudo systemctl enable --now vampigotchi"
 echo "3. Access web interface at http://<device-ip>"
 echo ""
 echo -e "${GREEN}Happy hacking! 🧛🦇${NC}"

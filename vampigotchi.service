@@ -6,8 +6,8 @@ Wants=bluetooth.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/VampGotchi
-ExecStart=/usr/bin/python3 /root/VampGotchi/vampgotchi.py
+WorkingDirectory=/root/VAMPIGOTCHI
+ExecStart=/usr/bin/python3 /root/VAMPIGOTCHI/vampigotchi.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
