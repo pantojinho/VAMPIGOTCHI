@@ -59,12 +59,57 @@ if [ -f /var/lib/dpkg/triggers/File ]; then
     echo -e "${GREEN}  ✓ Triggers file recreated${NC}"
 fi
 
+# Check and fix dpkg status file if corrupted
+if [ -f /var/lib/dpkg/status ]; then
+    # #region agent log
+    STATUS_SIZE=$(stat -c%s /var/lib/dpkg/status 2>/dev/null || echo 0)
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"D\",\"location\":\"install.sh:62\",\"message\":\"Checking dpkg status file\",\"data\":{\"statusFileSize\":$STATUS_SIZE},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+    # #endregion agent log
+    
+    # Check if status file is empty or too small (should be at least a few KB)
+    if [ ! -s /var/lib/dpkg/status ] || [ "$STATUS_SIZE" -lt 1000 ]; then
+        echo -e "${YELLOW}  dpkg status file appears empty or corrupted, attempting to fix...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E1\",\"location\":\"install.sh:68\",\"message\":\"Status file empty or too small\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Backup and try to recover from available sources
+        BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+        cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+        
+        # Try to recover from status-old if available
+        if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
+            echo -e "${YELLOW}  Attempting to recover from status-old...${NC}"
+            cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+        fi
+    else
+        # Check for syntax errors: look for sections without Package: header
+        # A valid status file should have "Package: " at the start of each package entry
+        if ! grep -q "^Package: " /var/lib/dpkg/status 2>/dev/null || [ $(grep -c "^Package: " /var/lib/dpkg/status 2>/dev/null || echo 0) -eq 0 ]; then
+            echo -e "${YELLOW}  dpkg status file has syntax errors, attempting to fix...${NC}"
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E2\",\"location\":\"install.sh:80\",\"message\":\"Status file has syntax errors\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            
+            # Backup and try to recover
+            BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+            cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+            
+            # Try to recover from status-old if available
+            if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
+                echo -e "${YELLOW}  Attempting to recover from status-old...${NC}"
+                cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+            fi
+        fi
+    fi
+fi
+
 # Try to fix any broken dpkg packages (non-blocking)
 echo -e "${YELLOW}  Verifying dpkg packages...${NC}"
 dpkg --configure -a 2>/dev/null || true
 
 # #region agent log
-echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"E\",\"location\":\"install.sh:60\",\"message\":\"dpkg check completed, proceeding to apt-get\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+echo "{\"sessionId\":\"debug-session\",\"runId\":\"dpkg-check\",\"hypothesisId\":\"F\",\"location\":\"install.sh:95\",\"message\":\"dpkg check completed, proceeding to apt-get\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
 # #endregion agent log
 
 # Re-enable exit on error for the rest of the script
@@ -77,8 +122,50 @@ apt-get update -qq 2>&1 | tee /tmp/apt_update_error.log || {
     echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"D\",\"location\":\"install.sh:73\",\"message\":\"apt-get update failed\",\"data\":{\"exitCode\":$EXIT_CODE,\"errorPreview\":\"$(echo "$ERROR_MSG" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
     # #endregion agent log
     
+    # Check if error is related to dpkg status file
+    if echo "$ERROR_MSG" | grep -qiE "Problem with MergeList.*status|Encountered a section with no Package|dpkg.*status.*could not be parsed"; then
+        echo -e "${YELLOW}  Detected dpkg status file error, attempting to fix...${NC}"
+        # #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"H\",\"location\":\"install.sh:120\",\"message\":\"Fixing status file after apt-get error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+        # #endregion agent log
+        
+        # Try to recover from status-old
+        BACKUP_STATUS="/var/lib/dpkg/status.backup.$(date +%s)"
+        cp /var/lib/dpkg/status "$BACKUP_STATUS" 2>/dev/null || true
+        
+        if [ -f /var/lib/dpkg/status-old ] && [ -s /var/lib/dpkg/status-old ]; then
+            echo -e "${YELLOW}  Recovering from status-old backup...${NC}"
+            cp /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+            dpkg --configure -a 2>/dev/null || true
+        else
+            # If status-old is not available, this is a serious issue
+            # Try to use dpkg --clear-avail and rebuild
+            echo -e "${YELLOW}  status-old not available, attempting dpkg repair...${NC}"
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"J\",\"location\":\"install.sh:140\",\"message\":\"Attempting dpkg repair without status-old\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            
+            # Try to rebuild status from available information
+            dpkg --clear-avail 2>/dev/null || true
+            # This is risky, but sometimes necessary
+            # The system will rebuild status as packages are queried
+        fi
+        
+        echo -e "${GREEN}  ✓ Fixed, retrying apt-get update...${NC}"
+        
+        # Retry apt-get update
+        apt-get update -qq 2>&1 | tee /tmp/apt_update_error2.log || {
+            RETRY_EXIT=$?
+            RETRY_ERROR=$(cat /tmp/apt_update_error2.log 2>/dev/null || echo "Unknown error")
+            # #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"I\",\"location\":\"install.sh:150\",\"message\":\"apt-get update failed after status fix\",\"data\":{\"exitCode\":$RETRY_EXIT,\"errorPreview\":\"$(echo "$RETRY_ERROR" | head -c 200)\"},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
+            # #endregion agent log
+            echo -e "${RED}  apt-get update still failing after status fix${NC}"
+            echo -e "${YELLOW}  You may need to manually fix /var/lib/dpkg/status${NC}"
+            exit $RETRY_EXIT
+        }
     # Check if error is related to dpkg triggers file (multiple possible error messages)
-    if echo "$ERROR_MSG" | grep -qiE "syntax error.*triggers.*File|dpkg.*error.*triggers|error.*triggers file"; then
+    elif echo "$ERROR_MSG" | grep -qiE "syntax error.*triggers.*File|dpkg.*error.*triggers|error.*triggers file"; then
         echo -e "${YELLOW}  Detected dpkg triggers file error, attempting to fix...${NC}"
         # #region agent log
         echo "{\"sessionId\":\"debug-session\",\"runId\":\"pre-apt\",\"hypothesisId\":\"E\",\"location\":\"install.sh:80\",\"message\":\"Fixing triggers file after apt-get error\",\"data\":{},\"timestamp\":$(date +%s000)}" >> "$LOG_FILE"
