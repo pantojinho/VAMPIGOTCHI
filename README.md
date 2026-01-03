@@ -39,24 +39,29 @@ Flash **Raspberry Pi OS (Legacy)** to your SD card using [Raspberry Pi Imager](h
 
 ### 2. Install Dependencies
 
+**For Raspberry Pi OS (Debian 12+) with externally-managed Python:**
+
 ```bash
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install Python packages
-sudo apt install -y python3-pip python3-pil python3-numpy
+# Install system dependencies
+sudo apt install -y python3-pip python3-pil python3-numpy git
 
-# Install Waveshare E-Paper library
-sudo pip3 install waveshare-epd
+# Install Python packages (use --break-system-packages flag for Raspberry Pi OS)
+sudo pip3 install --break-system-packages Flask>=2.3.0 Pillow>=9.5.0 waveshare-epd>=2.0.0
 
-# Install Flask
-sudo pip3 install flask
+# Or install from requirements.txt
+sudo pip3 install --break-system-packages -r requirements.txt
 
 # Install BLEeding
 git clone https://github.com/sammwyy/BLEeding.git ~/bleeding
 cd ~/bleeding
-sudo pip3 install -r requirements.txt
+sudo pip3 install --break-system-packages -r requirements.txt
+cd ~
 ```
+
+**Note:** The `--break-system-packages` flag is required for Raspberry Pi OS Bookworm (Debian 12+) which uses externally-managed Python environments. This is safe to use on Raspberry Pi for system-wide installations.
 
 ### 3. Download and Run
 
@@ -206,7 +211,7 @@ Install BLEeding manually if needed:
 ```bash
 git clone https://github.com/sammwyy/BLEeding.git ~/bleeding
 cd ~/bleeding
-sudo pip3 install -r requirements.txt
+sudo pip3 install --break-system-packages -r requirements.txt
 ```
 
 ---
