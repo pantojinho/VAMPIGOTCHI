@@ -23,15 +23,31 @@ DNSMASQ_CONF = "/etc/dnsmasq.conf"
 WPA_SUPPLICANT_CONF = "/etc/wpa_supplicant/wpa_supplicant.conf"
 
 # BLEeding - Tenta encontrar o caminho correto
-BLEEDING_PATH = "/root/BLEeding"
+BLEEDING_PATH = "/root/bleeding"  # Caminho padrão encontrado no sistema
 ATTACK_TIMEOUT = 10
-# Caminhos alternativos possíveis
+# Caminhos alternativos possíveis (mais abrangente)
 BLEEDING_PATHS = [
-    "/root/BLEeding",
+    "/root/bleeding",      # Caminho encontrado no sistema
+    "/root/BLEeding",      # Versão com maiúsculas
     "/opt/BLEeding",
+    "/opt/bleeding",
     "/home/pi/BLEeding",
-    "./BLEeding"
+    "/home/pi/bleeding",
+    "/home/root/BLEeding",
+    "/home/root/bleeding",
+    "/usr/local/BLEeding",
+    "/usr/local/bleeding",
+    "./BLEeding",
+    "./bleeding",
+    "~/BLEeding",
+    "~/bleeding"
 ]
+# Adiciona caminho relativo ao script se disponível
+try:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    BLEEDING_PATHS.append(os.path.join(script_dir, "BLEeding"))
+except:
+    pass
 
 # Theme and Display Settings
 THEME_COLOR = "#00d4ff"  # Cor principal do tema
@@ -192,10 +208,37 @@ def restart_services_client(ssid, password):
 def find_bleeding_path():
     """Encontra o caminho correto do BLEeding"""
     global BLEEDING_PATH
+    
+    # Primeiro, tenta usar o caminho atual se já foi encontrado antes
+    if BLEEDING_PATH and os.path.exists(BLEEDING_PATH) and os.path.exists(os.path.join(BLEEDING_PATH, "bleeding.py")):
+        return BLEEDING_PATH
+    
+    # Busca em todos os caminhos possíveis
     for path in BLEEDING_PATHS:
-        if os.path.exists(path) and os.path.exists(os.path.join(path, "bleeding.py")):
-            BLEEDING_PATH = path
-            return path
+        try:
+            expanded_path = os.path.expanduser(path)
+            if os.path.exists(expanded_path) and os.path.exists(os.path.join(expanded_path, "bleeding.py")):
+                BLEEDING_PATH = expanded_path
+                print(f"✓ BLEeding encontrado em: {BLEEDING_PATH}")
+                return expanded_path
+        except Exception as e:
+            continue
+    
+    # Se não encontrou, tenta buscar em diretórios comuns
+    search_dirs = ["/root", "/opt", "/home/pi", "/usr/local"]
+    for base_dir in search_dirs:
+        if os.path.exists(base_dir):
+            try:
+                for item in os.listdir(base_dir):
+                    potential_path = os.path.join(base_dir, item)
+                    if os.path.isdir(potential_path) and os.path.exists(os.path.join(potential_path, "bleeding.py")):
+                        BLEEDING_PATH = potential_path
+                        print(f"✓ BLEeding encontrado em: {BLEEDING_PATH}")
+                        return potential_path
+            except:
+                continue
+    
+    print(f"✗ BLEeding não encontrado. Caminhos testados: {BLEEDING_PATHS}")
     return None
 
 def run_bleeding_scan():
@@ -204,34 +247,86 @@ def run_bleeding_scan():
     mood = "excited"
     update_display()
     
+    print("\n" + "="*60)
+    print("🔍 [DEBUG] Iniciando scan BLE...")
+    print("="*60)
+    
     # Tenta encontrar o caminho do BLEeding
     bleeding_path = find_bleeding_path()
     if not bleeding_path:
-        print(f"ERRO: BLEeding não encontrado em nenhum dos caminhos: {BLEEDING_PATHS}")
+        print(f"❌ [DEBUG] ERRO: BLEeding não encontrado!")
+        print(f"   [DEBUG] Por favor, instale o BLEeding ou configure o caminho correto.")
+        print(f"   [DEBUG] Caminhos testados: {BLEEDING_PATHS}")
         scan_status = "Error"
         mood = "sad"
         update_display()
         return
     
+    print(f"✓ [DEBUG] BLEeding encontrado em: {bleeding_path}")
+    
     old_cwd = os.getcwd()
-    os.chdir(bleeding_path)
+    print(f"📁 [DEBUG] Diretório atual antes: {old_cwd}")
+    
     try:
-        result = subprocess.run(['python3', 'bleeding.py', 'scan', '--ble'], 
+        os.chdir(bleeding_path)
+        print(f"📁 [DEBUG] Mudou para diretório: {os.getcwd()}")
+        
+        # Verifica se o arquivo existe
+        bleeding_script = os.path.join(bleeding_path, "bleeding.py")
+        if not os.path.exists(bleeding_script):
+            print(f"❌ [DEBUG] Arquivo bleeding.py não encontrado em: {bleeding_script}")
+            scan_status = "Error"
+            mood = "sad"
+            update_display()
+            return
+        
+        print(f"✓ [DEBUG] Arquivo bleeding.py encontrado: {bleeding_script}")
+        
+        # Comando a ser executado
+        cmd = ['python3', 'bleeding.py', 'scan', '--ble']
+        print(f"🚀 [DEBUG] Executando comando: {' '.join(cmd)}")
+        print(f"   [DEBUG] Timeout: 20 segundos")
+        
+        result = subprocess.run(cmd, 
                               capture_output=True, text=True, timeout=20)
+        
+        print(f"\n📊 [DEBUG] Resultado do comando:")
+        print(f"   [DEBUG] Return code: {result.returncode}")
+        print(f"   [DEBUG] STDOUT ({len(result.stdout)} caracteres):")
+        print("-" * 60)
+        if result.stdout:
+            print(result.stdout)
+        else:
+            print("   (vazio)")
+        print("-" * 60)
+        
+        print(f"   [DEBUG] STDERR ({len(result.stderr)} caracteres):")
+        print("-" * 60)
+        if result.stderr:
+            print(result.stderr)
+        else:
+            print("   (vazio)")
+        print("-" * 60)
+        
         output = result.stdout
         
         # Parse melhorado - procura por MAC addresses e informações
+        print(f"\n🔎 [DEBUG] Analisando saída...")
         lines = output.split('\n')
+        print(f"   [DEBUG] Total de linhas na saída: {len(lines)}")
+        
         found_macs = []
         new_targets = 0
         
-        for line in lines:
+        for i, line in enumerate(lines):
             # Procura MAC addresses (formato XX:XX:XX:XX:XX:XX ou XX-XX-XX-XX-XX-XX)
             mac_match = re.search(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})', line)
             if mac_match:
                 mac_str = mac_match.group(0).replace('-', ':').upper()
                 if mac_str not in found_macs:
                     found_macs.append(mac_str)
+                    print(f"   ✓ [DEBUG] MAC encontrado na linha {i+1}: {mac_str}")
+                    print(f"      [DEBUG] Linha: {line[:80]}")
                     
                     # Tenta extrair nome do dispositivo (vários formatos possíveis)
                     device_name = "Unknown"
@@ -275,22 +370,45 @@ def run_bleeding_scan():
         total_scans += 1
         total_targets_found = len(targets_info)
         
+        print(f"\n📈 [DEBUG] Resultado do scan:")
+        print(f"   [DEBUG] MACs encontrados: {len(found_macs)}")
+        print(f"   [DEBUG] Total de targets únicos: {len(targets_info)}")
+        print(f"   [DEBUG] Lista de MACs: {found_macs}")
+        
         if len(targets) > 0:
             mood = "happy"
+            print(f"   ✓ [DEBUG] Scan bem-sucedido! Dispositivos encontrados.")
         else:
             mood = "sad"
+            print(f"   ⚠ [DEBUG] Nenhum dispositivo encontrado.")
+            print(f"   [DEBUG] Possíveis causas:")
+            print(f"      - Nenhum dispositivo Bluetooth próximo")
+            print(f"      - Bluetooth desabilitado")
+            print(f"      - Problema com o comando bleeding.py")
+            print(f"      - Formato de saída diferente do esperado")
             
         scan_status = "Done"
+        print("="*60 + "\n")
+        
+    except subprocess.TimeoutExpired:
+        print(f"\n❌ [DEBUG] ERRO: Timeout - o comando demorou mais de 20 segundos")
+        print(f"   [DEBUG] Isso pode indicar que o BLEeding está travado ou há muitos dispositivos")
+        scan_status = "Error"
+        mood = "sad"
     except Exception as e:
-        print(f"Erro Scan: {e}")
+        print(f"\n❌ [DEBUG] ERRO no scan: {type(e).__name__}: {e}")
+        import traceback
+        print(f"   [DEBUG] Traceback completo:")
+        traceback.print_exc()
         scan_status = "Error"
         mood = "sad"
     finally:
         # Sempre retorna ao diretório original
         try:
             os.chdir(old_cwd)
-        except:
-            pass
+            print(f"📁 [DEBUG] Retornou para diretório: {os.getcwd()}")
+        except Exception as e:
+            print(f"⚠ [DEBUG] Erro ao retornar diretório: {e}")
     
     update_display()
 
@@ -304,7 +422,8 @@ def run_bleeding_attack_thread(mac):
     # Tenta encontrar o caminho do BLEeding
     bleeding_path = find_bleeding_path()
     if not bleeding_path:
-        print(f"ERRO: BLEeding não encontrado em nenhum dos caminhos: {BLEEDING_PATHS}")
+        print(f"ERRO: BLEeding não encontrado!")
+        print(f"Por favor, instale o BLEeding ou configure o caminho correto.")
         attacking = False
         mood = "sad"
         update_display()
@@ -454,19 +573,17 @@ def update_display():
         image = Image.new('1', (epd.width, epd.height), 255)  # width=250, height=122, BRANCO
         draw = ImageDraw.Draw(image)
         
-        # Layout VERTICAL otimizado
+        # Layout VERTICAL - TELA COMPLETA com VampiGotchi na parte inferior
         # ========== HEADER ==========
         draw.text((5, 2), "VampiGotchi", font=font_large, fill=0)
         
-        # ========== VAMPIGOTCHI CHIBI (lado esquerdo) ==========
-        # Personagem posicionado para melhor visualização no modo vertical
-        draw_vampigotchi_chibi(draw, 3, 18, mood)
+        # Linha separadora abaixo do título
+        draw.line([(0, 18), (epd.width, 18)], fill=0, width=1)
         
-        # ========== INFO PRINCIPAL (lado direito do personagem) ==========
-        x_info = 38
-        y_info = 20
+        # ========== ÁREA PRINCIPAL DE INFORMAÇÕES ==========
+        y_start = 22
         
-        # Status
+        # Status (esquerda)
         status_text = "IDLE"
         if attacking:
             status_text = "ATTACK!"
@@ -475,48 +592,57 @@ def update_display():
         elif scan_status == "Error":
             status_text = "ERROR"
             
-        draw.text((x_info, y_info), status_text, font=font, fill=0)
-        y_info += 15
+        draw.text((5, y_start), f"Status: {status_text}", font=font, fill=0)
+        y_start += 14
         
-        # Network
-        draw.text((x_info, y_info), f"{mode}", font=font_small, fill=0)
-        y_info += 12
+        # Network Info (esquerda)
+        draw.text((5, y_start), f"Mode: {mode}", font=font_small, fill=0)
+        y_start += 12
+        ip_short = ip[:18] if len(ip) > 18 else ip
+        draw.text((5, y_start), f"IP: {ip_short}", font=font_small, fill=0)
+        y_start += 12
         
-        # IP (truncado se muito longo)
-        ip_short = ip[:12] if len(ip) > 12 else ip
-        draw.text((x_info, y_info), ip_short, font=font_small, fill=0)
+        # Linha separadora
+        draw.line([(0, y_start), (epd.width, y_start)], fill=0, width=1)
+        y_start += 4
         
-        # ========== ESTATÍSTICAS (abaixo do personagem, lado esquerdo) ==========
-        y_stats = 58
-        draw.text((5, y_stats), f"T:{len(targets)}", font=font_small, fill=0)
+        # ========== ESTATÍSTICAS (lado esquerdo) ==========
+        y_stats = y_start
+        draw.text((5, y_stats), f"Targets: {len(targets)}", font=font_small, fill=0)
         y_stats += 12
-        draw.text((5, y_stats), f"S:{total_scans}", font=font_small, fill=0)
+        draw.text((5, y_stats), f"Scans: {total_scans}", font=font_small, fill=0)
         y_stats += 12
-        draw.text((5, y_stats), f"A:{total_attacks}", font=font_small, fill=0)
+        draw.text((5, y_stats), f"Attacks: {total_attacks}", font=font_small, fill=0)
+        y_stats += 12
         
         # ========== TARGET INFO (se selecionado ou atacando) ==========
-        y_target = 95
         if attacking and selected_target:
             target_info = targets_info.get(selected_target, {})
-            target_name = target_info.get('name', 'Unknown')[:15]
-            draw.text((5, y_target), f">> {target_name}", font=font_small, fill=0)
-            y_target += 12
-            mac_short = selected_target[:17] if len(selected_target) > 17 else selected_target
-            draw.text((5, y_target), mac_short, font=font_small, fill=0)
+            target_name = target_info.get('name', 'Unknown')[:18]
+            draw.text((5, y_stats), f">> {target_name}", font=font_small, fill=0)
+            y_stats += 12
+            mac_short = selected_target[:20] if len(selected_target) > 20 else selected_target
+            draw.text((5, y_stats), mac_short, font=font_small, fill=0)
+            y_stats += 12
         elif selected_target:
             target_info = targets_info.get(selected_target, {})
-            target_name = target_info.get('name', 'Unknown')[:15]
-            draw.text((5, y_target), f"Sel: {target_name}", font=font_small, fill=0)
-            y_target += 12
+            target_name = target_info.get('name', 'Unknown')[:18]
+            draw.text((5, y_stats), f"Sel: {target_name}", font=font_small, fill=0)
+            y_stats += 12
             rssi = target_info.get('rssi', 0)
             if rssi != 0:
-                draw.text((5, y_target), f"RSSI: {rssi} dBm", font=font_small, fill=0)
+                draw.text((5, y_stats), f"RSSI: {rssi} dBm", font=font_small, fill=0)
+                y_stats += 12
         
-        # ========== UPTIME (rodapé) ==========
-        y_footer = 112
+        # ========== UPTIME ==========
         uptime = get_uptime_str()
-        draw.line([(0, y_footer-2), (epd.width, y_footer-2)], fill=0)
-        draw.text((5, y_footer), f"Up:{uptime}", font=font_small, fill=0)
+        draw.text((5, y_stats), f"Uptime: {uptime}", font=font_small, fill=0)
+        
+        # ========== VAMPIGOTCHI CHIBI (PARTE INFERIOR) ==========
+        # Calcula posição para centralizar na parte inferior
+        char_y = epd.height - 50  # 50 pixels do fundo (altura do personagem + margem)
+        char_x = (epd.width - 30) // 2  # Centraliza horizontalmente (personagem tem ~30px de largura)
+        draw_vampigotchi_chibi(draw, char_x, char_y, mood)
 
         # V4: Otimização de atualização - EVITA PISCAR
         global display_update_count, last_full_update
