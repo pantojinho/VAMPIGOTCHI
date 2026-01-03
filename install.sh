@@ -230,15 +230,16 @@ else
     exit 1
 fi
 
-# Create configuration file if it doesn't exist
-echo -e "${GREEN}[6/8] Setting up configuration...${NC}"
+# Verify Scrpit.py exists
+echo -e "${GREEN}[6/8] Verifying installation...${NC}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-if [ ! -f "config.yml" ] && [ -f "default_config.yml" ]; then
-    cp "default_config.yml" "config.yml"
-    echo -e "${GREEN}✓ Configuration file created${NC}"
+if [ ! -f "Scrpit.py" ]; then
+    echo -e "${RED}Error: Scrpit.py not found in $SCRIPT_DIR${NC}"
+    exit 1
 else
-    echo -e "${YELLOW}Configuration file already exists or default_config.yml not found${NC}"
+    chmod +x Scrpit.py
+    echo -e "${GREEN}✓ Scrpit.py verified and made executable${NC}"
 fi
 cd - > /dev/null
 
@@ -263,7 +264,7 @@ fi
 if [ -n "$SERVICE_SOURCE" ]; then
     SERVICE_FILE="/etc/systemd/system/vampigotchi.service"
     # Update service file with correct paths before copying
-    sed "s|/root/VampGotchi|$SCRIPT_DIR|g; s|vampgotchi\.py|vampigotchi.py|g" "$SERVICE_SOURCE" > "$SERVICE_FILE" 2>/dev/null || cp "$SERVICE_SOURCE" "$SERVICE_FILE"
+    sed "s|/path/to/Scrpit.py|$SCRIPT_DIR/Scrpit.py|g; s|/path/to/VAMPIGOTCHI|$SCRIPT_DIR|g; s|vampgotchi\.py|Scrpit.py|g; s|vampigotchi\.py|Scrpit.py|g" "$SERVICE_SOURCE" > "$SERVICE_FILE" 2>/dev/null || cp "$SERVICE_SOURCE" "$SERVICE_FILE"
     systemctl daemon-reload > /dev/null 2>&1
     echo -e "${GREEN}✓ Systemd service installed${NC}"
     echo -e "${YELLOW}  To enable auto-start: sudo systemctl enable vampigotchi${NC}"
@@ -272,13 +273,20 @@ else
     echo -e "${YELLOW}Systemd service file not found, skipping...${NC}"
 fi
 
+# Update service file to use Scrpit.py
+if [ -n "$SERVICE_SOURCE" ]; then
+    echo -e "${YELLOW}  Updating service file to use Scrpit.py...${NC}"
+    sed -i "s|vampigotchi\.py|Scrpit.py|g; s|vampgotchi\.py|Scrpit.py|g" "$SERVICE_FILE" 2>/dev/null || true
+    systemctl daemon-reload > /dev/null 2>&1
+fi
+
 # Final verification
 echo ""
 echo -e "${GREEN}=================================="
 echo -e "Installation completed successfully!${NC}"
 echo ""
 echo "Next steps:"
-echo "1. Run: sudo python3 vampigotchi.py"
+echo "1. Run: sudo python3 Scrpit.py"
 echo "2. Or enable service: sudo systemctl enable --now vampigotchi"
 echo "3. Access web interface at http://<device-ip>"
 echo ""

@@ -83,10 +83,23 @@ def scan_bluetooth_devices(timeout=5):
 
 ### File Organization
 
-- Keep related functionality together
-- Use clear section headers with comments
-- Separate configuration, functions, and main logic
-- Import standard library first, then third-party, then local
+**Important**: VampiGotchi v4.0 is a standalone single-file application (`Scrpit.py`). All functionality should remain in this single file.
+
+- Keep related functionality together with clear section headers
+- Use comment separators: `# ================= SECTION NAME =================`
+- Organize in this order:
+  1. Imports
+  2. Configuration constants
+  3. Global state variables
+  4. Helper functions
+  5. Display functions
+  6. Network functions
+  7. BLEeding functions
+  8. Web interface HTML (as template string)
+  9. Flask routes
+  10. Main execution
+- Import standard library first, then third-party, then local (if any)
+- Keep HTML embedded in Python string (no external templates)
 
 ### Comments and Documentation
 

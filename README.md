@@ -1,19 +1,24 @@
-# 🧛 VampGotchi
+# 🧛 VampiGotchi - BLEeding Ultimate v4
 
-**A Tamagotchi-like Bluetooth monitor with a vampire's bite**
+**A standalone Tamagotchi-like Bluetooth monitor with a vampire's bite**
 
-VampGotchi is a portable BLE (Bluetooth Low Energy) monitoring device that watches over your Bluetooth network. Feed it devices, watch its mood change, and let it jam unwanted connections when needed. Inspired by Pwnagotchi, but with a spooky vampire twist!
+VampiGotchi is a portable BLE (Bluetooth Low Energy) monitoring device that watches over your Bluetooth network. Feed it devices, watch its mood change, and let it jam unwanted connections when needed. Inspired by Pwnagotchi, but with a spooky vampire twist!
+
+**✨ NEW IN v4.0: Standalone single-file application!** Everything you need in one `Scrpit.py` file.
 
 ---
 
 ## 🦇 Features
 
-- 🧛 **Vampire Character**: Pixel art vampire that reacts to network activity with different moods
+- 🧛 **Vampire Character**: Beautiful pixel art vampire that reacts to network activity with different moods
 - 📡 **BLE Monitoring**: Passive scanning of nearby Bluetooth devices
 - 🦇 **Active Jamming**: Jam unwanted connections when needed (educational/research purposes only)
-- 📺 **E-Paper Display**: Low-power display showing vampire status, stats, and network information
-- 🌐 **Web Interface**: Configure and control via browser on the same network
+- 📺 **E-Paper Display**: Low-power 2.13" display showing vampire status, stats, and network information
+- 🌐 **Modern Web Interface**: Beautiful, customizable web interface accessible from any device
 - 🎭 **Mood System**: Character expresses different moods (bored, happy, excited, sad, angry) based on activity
+- 🐛 **Debug Mode**: Comprehensive debug information in both terminal and web interface
+- 🎨 **Theme Customization**: Customize colors directly from the web interface
+- 📱 **Full-Screen Layout**: Optimized vertical layout using entire E-Paper screen
 
 ---
 
@@ -32,75 +37,89 @@ VampGotchi is a portable BLE (Bluetooth Low Energy) monitoring device that watch
 
 Flash **Raspberry Pi OS (Legacy)** to your SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
 
-### 2. Clone and Install
+### 2. Install Dependencies
 
 ```bash
-# Clone the repository
-git clone https://github.com/pantojinho/VAMPIGOTCHI.git
-cd VAMPIGOTCHI
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-# Make install script executable (if needed)
-chmod +x install.sh
+# Install Python packages
+sudo apt install -y python3-pip python3-pil python3-numpy
 
-# Run the automated installation script
-sudo ./install.sh
+# Install Waveshare E-Paper library
+sudo pip3 install waveshare-epd
+
+# Install Flask
+sudo pip3 install flask
+
+# Install BLEeding
+git clone https://github.com/sammwyy/BLEeding.git ~/bleeding
+cd ~/bleeding
+sudo pip3 install -r requirements.txt
 ```
 
-That's it! The installation script will:
-- Install all system dependencies
-- Install Python packages
-- Clone and configure BLEeding
-- Set up configuration files
-- Configure Bluetooth
-
-### 3. Run VampGotchi
+### 3. Download and Run
 
 ```bash
-sudo python3 vampgotchi.py
+# Download the standalone script
+wget https://raw.githubusercontent.com/pantojinho/VAMPIGOTCHI/main/Scrpit.py
+
+# Make executable
+chmod +x Scrpit.py
+
+# Run (requires sudo for Bluetooth access)
+sudo python3 Scrpit.py
 ```
 
-Or enable the systemd service for auto-start on boot:
-
-```bash
-sudo systemctl enable vampgotchi.service
-sudo systemctl start vampgotchi.service
-```
+**That's it!** The script is completely standalone - no configuration files needed (optional).
 
 ### 4. Access Web Interface
 
-Connect to the device via Wi-Fi (either AP mode or client mode) and open:
+The script will display the IP address in the terminal. Connect to:
 ```
-http://192.168.4.1  (AP mode)
-http://<device-ip>  (Client mode)
+http://192.168.4.1  (AP mode - default)
+http://<device-ip>  (Client mode - if connected to Wi-Fi)
 ```
+
+---
+
+## 📁 Project Structure (Simplified!)
+
+```
+VampiGotchi/
+├── Scrpit.py          # ⭐ Main standalone application (everything in one file!)
+├── requirements.txt   # Python dependencies
+├── install.sh         # Optional automated installation script
+├── README.md          # This file
+├── CONTRIBUTING.md    # Contribution guidelines
+└── LICENSE            # MIT License
+```
+
+**All functionality is in `Scrpit.py` - no other Python files needed!**
 
 ---
 
 ## ⚙️ Configuration
 
-Configuration is stored in `config.yml` (auto-created from `default_config.yml` on first run).
+The script uses hardcoded defaults that work out of the box. You can modify constants at the top of `Scrpit.py`:
 
-### Display Settings
+```python
+# Network Config
+AP_SSID = "BLEeding-Pi"
+AP_PASS = "12345678"
+AP_IP = "192.168.4.1"
 
-- **display_mode**: `"white"` or `"black"` (background preference)
-- **display_full_refresh_interval**: Number of partial updates before full refresh (default: 30)
+# BLEeding
+BLEEDING_PATH = "/root/bleeding"  # Auto-detected if not found here
+ATTACK_TIMEOUT = 10
+```
 
-Change display mode via the web interface or edit `config.yml` directly.
-
-### Network Settings
-
-- **network_mode**: `"AP"` or `"CLIENT"`
-- **ap_ssid**: Access point SSID (default: "VampGotchi-AP")
-- **ap_pass**: Access point password
-- **ap_ip**: Access point IP address (default: "192.168.4.1")
-
-Switch between AP and client mode via the web interface.
-
-### BLEeding Settings
-
-- **bleeding_path**: Path to BLEeding installation (default: "/root/BLEeding")
-- **attack_timeout**: Default attack duration in seconds (default: 10)
-- **scan_interval**: Seconds between automatic scans (0 = disabled)
+The script automatically searches for BLEeding in common locations:
+- `/root/bleeding`
+- `/root/BLEeding`
+- `/opt/BLEeding`
+- `/home/pi/bleeding`
+- And more...
 
 ---
 
@@ -109,31 +128,37 @@ Switch between AP and client mode via the web interface.
 ### E-Paper Display
 
 The E-paper display shows:
-- **Vampire character** with current mood
+- **Vampire character** with current mood (bottom center)
 - **Status**: IDLE, SCAN..., ATTACK!, or ERROR
 - **Network mode** and IP address
 - **Statistics**: Targets found, total scans, total attacks
 - **Selected target** information (if any)
 - **Uptime**
 
+Display uses white background by default for better visibility.
+
 ### Web Interface
 
 Access the web interface to:
-- Switch between AP and client Wi-Fi modes
-- Configure display settings (black/white background)
-- Start BLE scans
-- View discovered devices
-- Select and attack targets
-- View debug information
+- **Switch between AP and client Wi-Fi modes**
+- **Customize theme colors** (background, cards, text)
+- **Start BLE scans** with real-time feedback
+- **View discovered devices** with MAC addresses and RSSI
+- **Select and attack targets**
+- **View comprehensive debug information** including:
+  - BLEeding path detection
+  - Command execution details
+  - Full output from scans
+  - Error messages and tracebacks
 
 ### Moods
 
 The vampire character has different moods:
-- **Bored**: No activity detected
-- **Happy**: Devices found
-- **Excited**: Scanning in progress
-- **Sad**: No devices found or error occurred
-- **Angry**: Attacking a target
+- **Bored** 😴: No activity detected
+- **Happy** 😊: Devices found
+- **Excited** 🤩: Scanning in progress
+- **Sad** 😢: No devices found or error occurred
+- **Angry** 😠: Attacking a target
 
 ---
 
@@ -147,75 +172,98 @@ The vampire character has different moods:
    sudo hciconfig hci0 up
    ```
 3. **Test manually**: Try `sudo hcitool lescan` to verify hardware
-4. **Check BLEeding**: Verify BLEeding is installed at the configured path
-5. **View debug info**: Use the debug section in the web interface
+4. **Check BLEeding**: View debug section in web interface to see if BLEeding was found
+5. **Use debug info**: The web interface now shows detailed debug information including:
+   - Where BLEeding was found
+   - Exact commands executed
+   - Full output from scans
+   - Any errors encountered
 
-### Display Shows Black/White Alternating
+### Display Shows Flashing
 
-This is normal for E-paper displays. The display uses partial updates for speed, but needs full refreshes periodically to prevent ghosting. You can adjust the refresh interval in `config.yml`.
+The display is optimized to avoid flashing:
+- Uses partial updates for speed
+- Full refresh every 30 updates to prevent ghosting
+- White background by default
+
+If flashing persists, check the `update_display()` function optimization settings.
 
 ### Web Interface Not Accessible
 
-1. Check the device IP address
+1. Check the IP address shown in terminal output
 2. Verify network mode (AP or client)
-3. Check firewall settings
-4. Ensure Flask is running (check process: `ps aux | grep vampgotchi`)
+3. Ensure Flask is running: `ps aux | grep Scrpit`
+4. Check firewall: `sudo ufw status`
 
-### Installation Issues
+### BLEeding Not Found
 
-If the installation script fails:
-1. Check internet connection
-2. Update system: `sudo apt update && sudo apt upgrade`
-3. Run installation script again (it's idempotent)
+The script automatically searches multiple paths. Check the debug section in the web interface to see:
+- All paths that were tested
+- Where BLEeding was eventually found
+- If BLEeding wasn't found, it will show all attempted paths
+
+Install BLEeding manually if needed:
+```bash
+git clone https://github.com/sammwyy/BLEeding.git ~/bleeding
+cd ~/bleeding
+sudo pip3 install -r requirements.txt
+```
 
 ---
 
 ## 🛠️ Development
 
-### Project Structure
-
-```
-VampGotchi/
-├── vampgotchi.py          # Main application
-├── config.yml             # User configuration (gitignored)
-├── default_config.yml     # Default configuration template
-├── requirements.txt       # Python dependencies
-├── install.sh             # Automated installation script
-├── vampgotchi.service     # Systemd service file
-├── README.md              # This file
-├── CONTRIBUTING.md        # Contribution guidelines
-├── LICENSE                # License file
-└── .gitignore             # Git ignore rules
-```
-
 ### Running from Source
 
-1. Install dependencies:
+1. Just download `Scrpit.py` - it's standalone!
+
+2. Install dependencies:
    ```bash
-   pip3 install -r requirements.txt
+   sudo pip3 install flask pillow waveshare-epd
    ```
 
-2. Install BLEeding:
+3. Install BLEeding:
    ```bash
-   git clone https://github.com/sammwyy/BLEeding.git /root/BLEeding
-   cd /root/BLEeding
-   pip3 install -r requirements.txt
+   git clone https://github.com/sammwyy/BLEeding.git ~/bleeding
+   cd ~/bleeding
+   sudo pip3 install -r requirements.txt
    ```
 
-3. Run:
+4. Run:
    ```bash
-   sudo python3 vampigotchi.py
+   sudo python3 Scrpit.py
    ```
+
+### Making Changes
+
+Edit `Scrpit.py` directly - it's all in one file! The script is organized with clear sections:
+- Configuration constants (top)
+- Display functions
+- Network functions
+- BLEeding functions
+- Web interface (HTML embedded)
+- Flask routes
+- Main execution
+
+---
+
+## 📸 Screenshots
+
+![VampiGotchi Display](Pixel%20Arte%20IA.png)
+
+*E-Paper display showing the vampire character with full-screen vertical layout*
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
-- Code style guidelines
-- How to submit issues
-- How to submit pull requests
-- Development setup
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+Since this is now a standalone file, contributions should:
+- Maintain the single-file structure
+- Keep code organized with clear sections
+- Add comprehensive debug information
+- Update this README if adding features
 
 ---
 
@@ -236,15 +284,34 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspired by [Pwnagotchi](https://github.com/evilsocket/pwnagotchi)
 - Uses [BLEeding](https://github.com/sammwyy/BLEeding) for Bluetooth operations
 - E-paper display driver: [Waveshare](https://www.waveshare.com/wiki/2.13inch_e-Paper_HAT)
+- Pixel art vampire character design
 
 ---
 
-## 📸 Screenshots
+## 📝 Changelog
 
-![VampGotchi Display](Pixel%20Arte%20IA.png)
+### v4.0 Ultimate (Standalone)
+- ✅ **Single-file standalone application** - everything in `Scrpit.py`
+- ✅ Full-screen vertical layout for E-Paper display
+- ✅ Modern web interface with theme customization
+- ✅ Comprehensive debug information in web UI
+- ✅ Automatic BLEeding path detection
+- ✅ Optimized display updates (no flashing)
+- ✅ White background by default
+- ✅ Enhanced error handling and logging
 
-*Interface do display E-Paper mostrando o personagem vampiro e estatísticas do jogo*
+### v3.0
+- Multi-file structure
+- YAML configuration support
+- Enhanced vampire character display
+
+### v2.0
+- Initial release
+- Basic BLE scanning
+- E-Paper display support
 
 ---
 
-**Made with 🧛 by the VampGotchi community**
+**Made with 🧛 by the VampiGotchi community**
+
+*One file to rule them all!* 🦇

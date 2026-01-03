@@ -1,4 +1,52 @@
 #!/usr/bin/env python3
+"""
+VampiGotchi - BLEeding Ultimate v4
+===================================
+A standalone Tamagotchi-like Bluetooth monitoring device with a vampire theme.
+Monitors Bluetooth Low Energy (BLE) devices and performs jamming when needed.
+
+This is a standalone, single-file application that combines:
+- E-Paper display management (Waveshare 2.13" V4)
+- Web interface (Flask)
+- Bluetooth scanning and jamming (via BLEeding)
+- Network configuration (AP/Client modes)
+- Real-time debug information
+
+Features:
+- Pixel art vampire character with mood system
+- Full-screen E-Paper display with white background
+- Modern web interface with theme customization
+- Automatic BLEeding path detection
+- Comprehensive debug information
+
+Author: VampGotchi Community
+License: MIT
+Version: 4.0 Ultimate (Standalone)
+
+Requirements:
+- Python 3.7+
+- Flask, Pillow, waveshare-epd
+- BLEeding installed (automatically detected)
+- Raspberry Pi Zero W with Waveshare 2.13" E-Paper HAT V4
+
+Usage:
+    sudo python3 Scrpit.py
+
+The script will:
+1. Initialize the E-Paper display
+2. Start the Flask web server on port 80
+3. Display the IP address to connect via browser
+4. Enable BLE scanning and jamming capabilities
+
+Web Interface:
+    Access via: http://<device-ip>
+    - Configure network settings
+    - Start BLE scans
+    - Attack selected targets
+    - View debug information
+    - Customize interface colors
+"""
+
 import subprocess
 import time
 import threading

@@ -1,13 +1,12 @@
 [Unit]
-Description=VampGotchi - Bluetooth Monitoring Device
+Description=VampiGotchi BLE Monitoring Service
 After=network.target bluetooth.target
-Wants=bluetooth.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/VAMPIGOTCHI
-ExecStart=/usr/bin/python3 /root/VAMPIGOTCHI/vampigotchi.py
+WorkingDirectory=/path/to/VAMPIGOTCHI
+ExecStart=/usr/bin/python3 /path/to/Scrpit.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -15,4 +14,3 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-
