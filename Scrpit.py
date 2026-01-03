@@ -77,6 +77,16 @@ mood = "bored"  # bored, happy, excited, sad, angry
 display_update_count = 0  # Contador para otimização de atualização V4
 last_full_update = None  # Timestamp da última atualização FULL
 
+# Debug info para exibir na interface web
+debug_info = {
+    'last_scan_output': '',
+    'last_scan_error': '',
+    'bleeding_path': '',
+    'last_scan_time': '',
+    'last_scan_command': '',
+    'last_scan_return_code': None
+}
+
 # ================= E-PAPER SETUP (CORRIGIDO) =================
 print("Inicializando E-Paper...")
 epd = None # Inicia como None para segurança
@@ -243,77 +253,94 @@ def find_bleeding_path():
 
 def run_bleeding_scan():
     global targets, targets_info, scan_status, total_scans, total_targets_found, mood
+    
+    # Força flush imediato dos prints (importante para threads)
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
+    print("\n" + "="*60, flush=True)
+    print("🔍 [DEBUG] Iniciando scan BLE...", flush=True)
+    print("="*60, flush=True)
+    
     scan_status = "Scanning..."
     mood = "excited"
     update_display()
     
-    print("\n" + "="*60)
-    print("🔍 [DEBUG] Iniciando scan BLE...")
-    print("="*60)
-    
     # Tenta encontrar o caminho do BLEeding
     bleeding_path = find_bleeding_path()
     if not bleeding_path:
-        print(f"❌ [DEBUG] ERRO: BLEeding não encontrado!")
-        print(f"   [DEBUG] Por favor, instale o BLEeding ou configure o caminho correto.")
-        print(f"   [DEBUG] Caminhos testados: {BLEEDING_PATHS}")
+        print(f"❌ [DEBUG] ERRO: BLEeding não encontrado!", flush=True)
+        print(f"   [DEBUG] Por favor, instale o BLEeding ou configure o caminho correto.", flush=True)
+        print(f"   [DEBUG] Caminhos testados: {BLEEDING_PATHS}", flush=True)
         scan_status = "Error"
         mood = "sad"
         update_display()
         return
     
-    print(f"✓ [DEBUG] BLEeding encontrado em: {bleeding_path}")
+    print(f"✓ [DEBUG] BLEeding encontrado em: {bleeding_path}", flush=True)
     
     old_cwd = os.getcwd()
-    print(f"📁 [DEBUG] Diretório atual antes: {old_cwd}")
+    print(f"📁 [DEBUG] Diretório atual antes: {old_cwd}", flush=True)
     
     try:
         os.chdir(bleeding_path)
-        print(f"📁 [DEBUG] Mudou para diretório: {os.getcwd()}")
+        print(f"📁 [DEBUG] Mudou para diretório: {os.getcwd()}", flush=True)
         
         # Verifica se o arquivo existe
         bleeding_script = os.path.join(bleeding_path, "bleeding.py")
         if not os.path.exists(bleeding_script):
-            print(f"❌ [DEBUG] Arquivo bleeding.py não encontrado em: {bleeding_script}")
+            print(f"❌ [DEBUG] Arquivo bleeding.py não encontrado em: {bleeding_script}", flush=True)
             scan_status = "Error"
             mood = "sad"
             update_display()
             return
         
-        print(f"✓ [DEBUG] Arquivo bleeding.py encontrado: {bleeding_script}")
+        print(f"✓ [DEBUG] Arquivo bleeding.py encontrado: {bleeding_script}", flush=True)
+        
+        # Teste: Verifica se o BLEeding funciona manualmente primeiro
+        print(f"\n🧪 [DEBUG] Testando BLEeding diretamente...", flush=True)
+        test_cmd = ['python3', 'bleeding.py', '--help']
+        test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=5)
+        print(f"   [DEBUG] Teste --help: return code = {test_result.returncode}", flush=True)
+        if test_result.stdout:
+            print(f"   [DEBUG] Saída do help (primeiras 200 chars): {test_result.stdout[:200]}", flush=True)
         
         # Comando a ser executado
         cmd = ['python3', 'bleeding.py', 'scan', '--ble']
-        print(f"🚀 [DEBUG] Executando comando: {' '.join(cmd)}")
-        print(f"   [DEBUG] Timeout: 20 segundos")
+        print(f"\n🚀 [DEBUG] Executando comando: {' '.join(cmd)}", flush=True)
+        print(f"   [DEBUG] Timeout: 20 segundos", flush=True)
+        sys.stdout.flush()
         
         result = subprocess.run(cmd, 
                               capture_output=True, text=True, timeout=20)
         
-        print(f"\n📊 [DEBUG] Resultado do comando:")
-        print(f"   [DEBUG] Return code: {result.returncode}")
-        print(f"   [DEBUG] STDOUT ({len(result.stdout)} caracteres):")
-        print("-" * 60)
+        print(f"\n📊 [DEBUG] Resultado do comando:", flush=True)
+        print(f"   [DEBUG] Return code: {result.returncode}", flush=True)
+        print(f"   [DEBUG] STDOUT ({len(result.stdout)} caracteres):", flush=True)
+        print("-" * 60, flush=True)
         if result.stdout:
-            print(result.stdout)
+            print(result.stdout, flush=True)
         else:
-            print("   (vazio)")
-        print("-" * 60)
+            print("   (vazio)", flush=True)
+        print("-" * 60, flush=True)
         
-        print(f"   [DEBUG] STDERR ({len(result.stderr)} caracteres):")
-        print("-" * 60)
+        print(f"   [DEBUG] STDERR ({len(result.stderr)} caracteres):", flush=True)
+        print("-" * 60, flush=True)
         if result.stderr:
-            print(result.stderr)
+            print(result.stderr, flush=True)
         else:
-            print("   (vazio)")
-        print("-" * 60)
+            print("   (vazio)", flush=True)
+        print("-" * 60, flush=True)
+        sys.stdout.flush()
         
         output = result.stdout
         
         # Parse melhorado - procura por MAC addresses e informações
-        print(f"\n🔎 [DEBUG] Analisando saída...")
+        print(f"\n🔎 [DEBUG] Analisando saída...", flush=True)
         lines = output.split('\n')
-        print(f"   [DEBUG] Total de linhas na saída: {len(lines)}")
+        print(f"   [DEBUG] Total de linhas na saída: {len(lines)}", flush=True)
+        sys.stdout.flush()
         
         found_macs = []
         new_targets = 0
@@ -325,8 +352,9 @@ def run_bleeding_scan():
                 mac_str = mac_match.group(0).replace('-', ':').upper()
                 if mac_str not in found_macs:
                     found_macs.append(mac_str)
-                    print(f"   ✓ [DEBUG] MAC encontrado na linha {i+1}: {mac_str}")
-                    print(f"      [DEBUG] Linha: {line[:80]}")
+                    print(f"   ✓ [DEBUG] MAC encontrado na linha {i+1}: {mac_str}", flush=True)
+                    print(f"      [DEBUG] Linha: {line[:80]}", flush=True)
+                    sys.stdout.flush()
                     
                     # Tenta extrair nome do dispositivo (vários formatos possíveis)
                     device_name = "Unknown"
@@ -370,45 +398,54 @@ def run_bleeding_scan():
         total_scans += 1
         total_targets_found = len(targets_info)
         
-        print(f"\n📈 [DEBUG] Resultado do scan:")
-        print(f"   [DEBUG] MACs encontrados: {len(found_macs)}")
-        print(f"   [DEBUG] Total de targets únicos: {len(targets_info)}")
-        print(f"   [DEBUG] Lista de MACs: {found_macs}")
+        print(f"\n📈 [DEBUG] Resultado do scan:", flush=True)
+        print(f"   [DEBUG] MACs encontrados: {len(found_macs)}", flush=True)
+        print(f"   [DEBUG] Total de targets únicos: {len(targets_info)}", flush=True)
+        print(f"   [DEBUG] Lista de MACs: {found_macs}", flush=True)
         
         if len(targets) > 0:
             mood = "happy"
-            print(f"   ✓ [DEBUG] Scan bem-sucedido! Dispositivos encontrados.")
+            print(f"   ✓ [DEBUG] Scan bem-sucedido! Dispositivos encontrados.", flush=True)
         else:
             mood = "sad"
-            print(f"   ⚠ [DEBUG] Nenhum dispositivo encontrado.")
-            print(f"   [DEBUG] Possíveis causas:")
-            print(f"      - Nenhum dispositivo Bluetooth próximo")
-            print(f"      - Bluetooth desabilitado")
-            print(f"      - Problema com o comando bleeding.py")
-            print(f"      - Formato de saída diferente do esperado")
+            print(f"   ⚠ [DEBUG] Nenhum dispositivo encontrado.", flush=True)
+            print(f"   [DEBUG] Possíveis causas:", flush=True)
+            print(f"      - Nenhum dispositivo Bluetooth próximo", flush=True)
+            print(f"      - Bluetooth desabilitado", flush=True)
+            print(f"      - Problema com o comando bleeding.py", flush=True)
+            print(f"      - Formato de saída diferente do esperado", flush=True)
             
         scan_status = "Done"
-        print("="*60 + "\n")
+        print("="*60 + "\n", flush=True)
+        sys.stdout.flush()
         
     except subprocess.TimeoutExpired:
-        print(f"\n❌ [DEBUG] ERRO: Timeout - o comando demorou mais de 20 segundos")
-        print(f"   [DEBUG] Isso pode indicar que o BLEeding está travado ou há muitos dispositivos")
+        error_msg = "Timeout - o comando demorou mais de 20 segundos"
+        print(f"\n❌ [DEBUG] ERRO: {error_msg}", flush=True)
+        print(f"   [DEBUG] Isso pode indicar que o BLEeding está travado ou há muitos dispositivos", flush=True)
+        debug_info['last_scan_error'] = error_msg
         scan_status = "Error"
         mood = "sad"
+        sys.stdout.flush()
     except Exception as e:
-        print(f"\n❌ [DEBUG] ERRO no scan: {type(e).__name__}: {e}")
         import traceback
-        print(f"   [DEBUG] Traceback completo:")
-        traceback.print_exc()
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        traceback_str = ''.join(traceback.format_exc())
+        print(f"\n❌ [DEBUG] ERRO no scan: {error_msg}", flush=True)
+        print(f"   [DEBUG] Traceback completo:", flush=True)
+        print(traceback_str, flush=True)
+        debug_info['last_scan_error'] = f"{error_msg}\n\n{traceback_str}"
+        sys.stdout.flush()
         scan_status = "Error"
         mood = "sad"
     finally:
         # Sempre retorna ao diretório original
         try:
             os.chdir(old_cwd)
-            print(f"📁 [DEBUG] Retornou para diretório: {os.getcwd()}")
+            print(f"📁 [DEBUG] Retornou para diretório: {os.getcwd()}", flush=True)
         except Exception as e:
-            print(f"⚠ [DEBUG] Erro ao retornar diretório: {e}")
+            print(f"⚠ [DEBUG] Erro ao retornar diretório: {e}", flush=True)
+        sys.stdout.flush()
     
     update_display()
 
@@ -1107,6 +1144,17 @@ HTML_TEMPLATE = """
                     document.getElementById('stat-mood').textContent = data.stats.mood;
                     document.getElementById('stat-uptime').textContent = data.stats.uptime;
                     
+                    // Atualiza informações de debug
+                    if (data.debug) {
+                        document.getElementById('debug-path').textContent = data.debug.bleeding_path || 'Não encontrado';
+                        document.getElementById('debug-scan-time').textContent = data.debug.last_scan_time || '-';
+                        document.getElementById('debug-command').textContent = data.debug.last_scan_command || '-';
+                        document.getElementById('debug-return-code').textContent = 
+                            data.debug.last_scan_return_code !== null ? data.debug.last_scan_return_code : '-';
+                        document.getElementById('debug-output').value = data.debug.last_scan_output || 'Aguardando scan...';
+                        document.getElementById('debug-error').value = data.debug.last_scan_error || 'Nenhum erro';
+                    }
+                    
                     const list = document.getElementById('target-list');
                     const select = document.getElementById('target-select');
                     
@@ -1327,6 +1375,55 @@ HTML_TEMPLATE = """
                 <span class="info-value">E-Paper V4 (Fundo Branco)</span>
             </div>
         </div>
+        
+        <div class="card">
+            <h2><i class="fas fa-bug"></i> Debug Information</h2>
+            <p style="color: #888; font-size: 0.9em; margin-bottom: 15px;">
+                Informações técnicas sobre o scan e BLEeding
+            </p>
+            
+            <div class="info-row">
+                <span class="info-label">Caminho do BLEeding:</span>
+                <span class="info-value" id="debug-path" style="font-family: monospace; font-size: 0.85em;">Carregando...</span>
+            </div>
+            
+            <div class="info-row">
+                <span class="info-label">Último Scan:</span>
+                <span class="info-value" id="debug-scan-time">-</span>
+            </div>
+            
+            <div class="info-row">
+                <span class="info-label">Comando Executado:</span>
+                <span class="info-value" id="debug-command" style="font-family: monospace; font-size: 0.85em;">-</span>
+            </div>
+            
+            <div class="info-row">
+                <span class="info-label">Return Code:</span>
+                <span class="info-value" id="debug-return-code">-</span>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <label style="display: block; margin-bottom: 8px; color: #a0a0a0; font-weight: 500;">
+                    Última Saída do BLEeding:
+                </label>
+                <textarea id="debug-output" readonly 
+                    style="width: 100%; min-height: 150px; padding: 10px; background: rgba(0,0,0,0.3); 
+                           border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; 
+                           color: #fff; font-family: monospace; font-size: 0.85em; 
+                           resize: vertical; box-sizing: border-box;">Aguardando scan...</textarea>
+            </div>
+            
+            <div style="margin-top: 15px;">
+                <label style="display: block; margin-bottom: 8px; color: #a0a0a0; font-weight: 500;">
+                    Erros (se houver):
+                </label>
+                <textarea id="debug-error" readonly 
+                    style="width: 100%; min-height: 80px; padding: 10px; background: rgba(255,0,0,0.1); 
+                           border: 1px solid rgba(255,0,0,0.3); border-radius: 8px; 
+                           color: #ff6b6b; font-family: monospace; font-size: 0.85em; 
+                           resize: vertical; box-sizing: border-box;">Nenhum erro</textarea>
+            </div>
+        </div>
     </div>
     
     <script>
@@ -1363,7 +1460,7 @@ def index():
 
 @app.route('/api/status')
 def api_status():
-    global targets, attacking, scan_status, selected_target, total_scans, total_attacks, mood
+    global targets, attacking, scan_status, selected_target, total_scans, total_attacks, mood, debug_info
     status_text = "Idle"
     status_class = "idle"
     if attacking:
@@ -1397,7 +1494,8 @@ def api_status():
             'total_attacks': total_attacks,
             'mood': mood,
             'uptime': get_uptime_str()
-        }
+        },
+        'debug': debug_info
     })
 
 @app.route('/set_ap', methods=['POST'])
@@ -1416,7 +1514,10 @@ def set_client():
 
 @app.route('/scan')
 def scan():
-    threading.Thread(target=run_bleeding_scan).start()
+    import sys
+    print("\n[ROUTE] /scan foi chamado - iniciando thread de scan", flush=True)
+    sys.stdout.flush()
+    threading.Thread(target=run_bleeding_scan, daemon=True).start()
     return index()
 
 @app.route('/attack', methods=['POST'])
